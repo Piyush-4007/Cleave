@@ -1,0 +1,12 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+boto3==1.35.71
+neo4j==5.26.0
+psycopg[binary]==3.2.3
+redis==5.2.0
+celery==5.4.0
+networkx==3.4.2
+pydantic==2.10.2
+pydantic-settings==2.6.1
+pytest==8.3.3
+httpx==0.28.1
