@@ -1,0 +1,58 @@
+{
+  "name": "CloudGoat iam_privesc_by_rollback — raynor reaches admin via policy rollback",
+  "ground_truth": "screenshots/phase0-iam_privesc_by_rollback/walkthrough.md",
+  "story": "raynor's only attached policy has iam:SetDefaultPolicyVersion in its DEFAULT version (v1). That one action lets him roll the policy back to hidden version v3, which is Allow *:*. The collector only ever sees the default version — the escalation is visible because SetDefaultPolicyVersion is in the admin-equivalent catalogue, not because anything greps for '*'.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/raynor-cgidgk0229l0j8",
+      "UserName": "raynor-cgidgk0229l0j8",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/cg-raynor-policy-cgidgk0229l0j8"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/cg-raynor-policy-cgidgk0229l0j8",
+      "PolicyName": "cg-raynor-policy-cgidgk0229l0j8",
+      "DefaultVersionId": "v1",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow",
+         "Action": ["iam:Get*", "iam:List*", "iam:SetDefaultPolicyVersion"],
+         "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/bystander",
+      "UserName": "bystander",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/cg-readonly"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/cg-readonly",
+      "PolicyName": "cg-readonly",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:GetObject", "iam:ListUsers"], "Resource": "*"}
+      ]}
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/raynor-cgidgk0229l0j8",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/raynor-cgidgk0229l0j8",
+          "arn:aws:iam::111122223333:policy/cg-raynor-policy-cgidgk0229l0j8",
+          "admin"
+        ],
+        "edges": ["HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain"
+      }
+    ],
+    "no_paths_from": ["arn:aws:iam::111122223333:user/bystander"],
+    "total_paths": 1
+  }
+}

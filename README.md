@@ -45,7 +45,7 @@ and paste back its ARN:
 | `eval/`                      | 10 | benchmark harness |
 
 ## Status
-Phase 1 — collectors. See `../Cleave_Build_Handbook.md` for the full plan.
+Phase 4 — path search (v1). See `../Cleave_Build_Handbook.md` for the full plan.
 
 ## Running a scan in dev (Phase 1)
 
@@ -58,3 +58,22 @@ cd backend && uv venv --python 3.11 .venv && uv pip install -r requirements.txt 
 `login_session` format the AWS CLI uses), assumes the `CleaveAudit` role, and writes one
 JSON file per service to `data/raw/`. Re-run any time; the graph rebuilds from those files
 without re-hitting AWS.
+
+## Finding attack paths in dev (Phase 4)
+
+```bash
+./load.sh                                  # data/raw -> Neo4j (needs the neo4j container)
+cd backend && .venv/bin/python -m cleave.paths.run
+```
+
+`paths.run` reads the loaded graph, classifies sources and sinks, and prints every route
+from a source to administrative control, shortest first, with the evidence behind each hop.
+Add `--from-raw` to skip Neo4j and search straight from `data/raw`, or `--json` for
+machine-readable output.
+
+**What counts as a start.** Two source classes: `EXTERNAL` (internet-reachable resource,
+public bucket, unauthenticated Lambda URL) and `ASSUMED_COMPROMISE` (any principal that is
+not already a literal administrator — "if this credential leaked, what could it reach?").
+A principal that already holds `*:*` is the account's baseline and is not reported.
+
+**Detection is deterministic.** Same graph in, same paths out. No model is involved.

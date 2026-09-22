@@ -1,0 +1,26 @@
+{
+  "name": "Allow *:* behind a Condition is not treated as unconditional full admin",
+  "note": "grants_admin still fires (POSSIBLE) so the edge exists; full_admin stays False so the holder is not silently dropped as a path source.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:PrincipalTag/team": "ops"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  },
+  "expect_full_admin": false
+}

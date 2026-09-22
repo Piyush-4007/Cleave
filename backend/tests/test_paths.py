@@ -1,0 +1,210 @@
+"""Phase 4 path search.
+
+The fixture files in `path_fixtures/` are the ground truth: each is a hand-built account
+(collector-shaped records) with the paths we walked by hand in Phase 0 written down as the
+expected answer. They run the WHOLE pipeline -- structural edges, IAM evaluation, evaluated
+edges, source/sink classification, search -- so a regression anywhere shows up here.
+
+Handbook's "done when": it finds the CloudGoat paths you exploited by hand.
+"""
+import json
+import pathlib
+import pytest
+
+from cleave.graph.loader import EDGE_TYPES
+from cleave.paths.endpoints import bucket_public_reason, find_sinks, find_sources, holds_full_admin
+from cleave.paths.graphview import graph_from_records
+from cleave.paths.model import ASSUMED_COMPROMISE, EXTERNAL
+from cleave.paths.search import CONTEXT_ONLY, TRAVERSABLE, find_paths, traversable_subgraph
+
+FIX_DIR = pathlib.Path(__file__).parent / "path_fixtures"
+FIXTURES = sorted(FIX_DIR.glob("*.json"))
+
+
+def _load(path):
+    fx = json.loads(path.read_text())
+    g = graph_from_records(fx["records"], fx.get("cred_findings", []))
+    return fx, g, find_paths(g)
+
+
+def _signature(p):
+    return (p.source.uid, p.sink.uid, tuple(p.nodes), tuple(h.rel for h in p.hops))
+
+
+# ---- the allowlist contract ----------------------------------------------------------
+
+def test_every_edge_type_is_classified():
+    """A new edge type must be declared traversable or context-only. Without this, adding
+    an edge in a later phase silently defaults to 'not walkable' and the path vanishes."""
+    classified = set(TRAVERSABLE) | set(CONTEXT_ONLY)
+    assert classified == EDGE_TYPES, {
+        "unclassified": EDGE_TYPES - classified,
+        "unknown to the loader": classified - EDGE_TYPES,
+    }
+    assert not (set(TRAVERSABLE) & set(CONTEXT_ONLY))
+
+
+def test_structural_connective_edges_are_traversable():
+    """A principal reaches its powers THROUGH the structural edges -- dropping them
+    disconnects every IAM path in the graph."""
+    for rel in ("HAS_ATTACHED", "IN_GROUP", "HAS_INSTANCE_PROFILE", "CONTAINS_ROLE",
+                "EXECUTES_AS", "CAN_ASSUME"):
+        assert rel in TRAVERSABLE
+
+
+def test_topology_edges_are_not_traversable():
+    """These exist so CAN_REACH can be computed; walking them invents fake paths."""
+    for rel in ("IN_SUBNET", "IN_VPC", "PROTECTED_BY", "ROUTES_VIA", "HAS_INTERNET_ROUTE"):
+        assert rel in CONTEXT_ONLY and rel not in TRAVERSABLE
+
+
+def test_traversable_subgraph_drops_context_edges():
+    records = [
+        {"_type": "Ec2Instance", "_id": "i-1", "SubnetId": "subnet-1", "VpcId": "vpc-1",
+         "SecurityGroups": ["sg-1"], "IamInstanceProfile": None},
+        {"_type": "Subnet", "_id": "subnet-1", "VpcId": "vpc-1"},
+        {"_type": "Vpc", "_id": "vpc-1"},
+        {"_type": "SecurityGroup", "_id": "sg-1", "IngressRules": []},
+    ]
+    g = graph_from_records(records)
+    sub = traversable_subgraph(g)
+    assert g.has_edge("i-1", "subnet-1")        # present for context (Phase 6 draws it)
+    assert not sub.has_edge("i-1", "subnet-1")  # but never walked
+    assert not sub.has_edge("subnet-1", "vpc-1")
+
+
+# ---- the ground-truth fixtures -------------------------------------------------------
+
+@pytest.mark.parametrize("path", FIXTURES, ids=[p.stem for p in FIXTURES])
+def test_fixture_finds_expected_paths(path):
+    fx, _g, found = _load(path)
+    found_sigs = {_signature(p) for p in found}
+
+    for exp in fx["expect"]["paths"]:
+        want = (exp["source"], exp["sink"], tuple(exp["nodes"]), tuple(exp["edges"]))
+        assert want in found_sigs, (
+            f"{fx['name']}: expected path not found.\n"
+            f"  wanted: {want}\n  found:  "
+            + "\n          ".join(map(str, sorted(found_sigs))))
+        match = next(p for p in found if _signature(p) == want)
+        assert match.source.kind == exp["source_kind"]
+        if "confidence" in exp:
+            assert match.confidence == exp["confidence"]
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=[p.stem for p in FIXTURES])
+def test_fixture_finds_nothing_extra(path):
+    """Over-reporting is the failure mode that rebuilds alert fatigue. A fixture pins the
+    exact number of paths so a new edge type cannot quietly double it."""
+    fx, _g, found = _load(path)
+    assert len(found) == fx["expect"]["total_paths"], \
+        "\n".join(f"{p.source.uid} -> {[h.rel for h in p.hops]}" for p in found)
+    for uid in fx["expect"].get("no_paths_from", []):
+        assert not [p for p in found if p.source.uid == uid], \
+            f"{uid} should not reach admin"
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=[p.stem for p in FIXTURES])
+def test_fixture_hops_carry_evidence(path):
+    """Every edge needs evidence tied to a real attacker action (standing constraint 4)."""
+    _fx, _g, found = _load(path)
+    for p in found:
+        for h in p.hops:
+            assert h.reason and h.evidence, f"{h.rel} hop has no evidence"
+            assert h.confidence in ("Certain", "Possible")
+            assert h.discovered_by
+
+
+# ---- source classification -----------------------------------------------------------
+
+def test_admin_holder_is_not_a_source():
+    """cleave-dev holds AdministratorAccess: that is the account baseline, not a finding."""
+    records = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::1:user/cleave-dev", "UserName": "cleave-dev",
+         "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+         "Groups": [], "InlinePolicies": {}},
+    ]
+    g = graph_from_records(records)
+    assert holds_full_admin(g, "arn:aws:iam::1:user/cleave-dev")
+    assert [s.uid for s in find_sources(g)] == []
+
+
+def test_escalation_primitive_holder_is_a_source():
+    """The distinction that makes Phase 4 work: a policy granting
+    iam:SetDefaultPolicyVersion is admin-EQUIVALENT (it gets a GRANTS_ADMIN edge) but its
+    holder is not yet admin -- he has to escalate, and that escalation is the finding."""
+    records = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::1:user/raynor", "UserName": "raynor",
+         "AttachedPolicies": [], "Groups": [],
+         "InlinePolicies": {"p": {"Statement": [
+             {"Effect": "Allow", "Action": "iam:SetDefaultPolicyVersion", "Resource": "*"}]}}},
+    ]
+    g = graph_from_records(records)
+    assert not holds_full_admin(g, "arn:aws:iam::1:user/raynor")
+    assert [(s.uid, s.kind) for s in find_sources(g)] == \
+           [("arn:aws:iam::1:user/raynor", ASSUMED_COMPROMISE)]
+    assert len(find_paths(g)) == 1
+
+
+def test_group_inherited_admin_is_excluded():
+    records = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::1:user/u", "UserName": "u",
+         "AttachedPolicies": [], "Groups": ["admins"], "InlinePolicies": {}},
+        {"_type": "IamGroup", "_id": "arn:aws:iam::1:group/admins", "GroupName": "admins",
+         "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+         "InlinePolicies": {}},
+    ]
+    g = graph_from_records(records)
+    assert holds_full_admin(g, "arn:aws:iam::1:user/u")
+
+
+def test_public_access_block_beats_a_public_acl():
+    allusers = [{"Grantee": {"URI": "http://acs.amazonaws.com/groups/global/AllUsers"}}]
+    assert bucket_public_reason({"Acl": allusers})
+    assert not bucket_public_reason({
+        "Acl": allusers,
+        "PublicAccessBlock": {"BlockPublicAcls": True, "IgnorePublicAcls": True,
+                              "BlockPublicPolicy": True, "RestrictPublicBuckets": True}})
+
+
+def test_unauthenticated_lambda_url_is_external():
+    records = [{"_type": "LambdaFunction", "_id": "arn:aws:lambda:us-east-1:1:function:f",
+                "FunctionName": "f", "FunctionUrlAuthType": "NONE", "Role": None}]
+    g = graph_from_records(records)
+    assert [s.kind for s in find_sources(g)] == [EXTERNAL]
+
+
+# ---- search behaviour ----------------------------------------------------------------
+
+def test_hop_limit_is_respected():
+    _fx, g, _ = _load(FIX_DIR / "02-iam_privesc_by_attachment.json")
+    assert find_paths(g, max_hops=1) == []
+    assert all(p.length <= 2 for p in find_paths(g, max_hops=2))
+
+
+def test_parallel_edges_report_the_more_damning_one():
+    """kerrigan has both CAN_PASS_ROLE and CAN_LAUNCH_AS to the mighty role. PassRole
+    alone does not hand you the role, so the completed form is what we show."""
+    _fx, _g, found = _load(FIX_DIR / "02-iam_privesc_by_attachment.json")
+    hop = next(h for p in found for h in p.hops if h.to.endswith("cg-ec2-mighty-role"))
+    assert hop.rel == "CAN_LAUNCH_AS"
+    assert "CAN_PASS_ROLE" in hop.alternatives
+
+
+def test_sink_is_admin_only_in_v1():
+    _fx, g, _ = _load(FIX_DIR / "01-iam_privesc_by_rollback.json")
+    assert [(s.uid, s.kind) for s in find_sinks(g)] == [("admin", "ADMIN")]
+
+
+def test_dedup_key_distinguishes_routes():
+    """Phase 5 groups on this; prove it is stable and separates distinct routes."""
+    _fx, _g, found = _load(FIX_DIR / "02-iam_privesc_by_attachment.json")
+    assert len({p.dedup_key for p in found}) == len(found)
+
+
+def test_narration_is_deterministic_and_mentions_every_hop():
+    _fx, _g, found = _load(FIX_DIR / "01-iam_privesc_by_rollback.json")
+    text = found[0].narrate()
+    assert text == found[0].narrate()
+    for h in found[0].hops:
+        assert h.rel in text

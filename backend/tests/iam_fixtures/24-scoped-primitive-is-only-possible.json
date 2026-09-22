@@ -1,0 +1,20 @@
+{
+  "name": "PassRole scoped to one role: admin-equivalent but a weaker claim -> POSSIBLE",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:PassRole",
+          "Resource": "arn:aws:iam::1:role/mighty"
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  },
+  "expect_full_admin": false
+}

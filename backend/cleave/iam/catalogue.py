@@ -1,11 +1,11 @@
-"""Admin-equivalent IAM permissions — permissions that are not *:* themselves but
+"""Admin-equivalent IAM permissions â€” permissions that are not *:* themselves but
 *reach* admin. Sourced from docs/aws-common-risks-reference.md. Used by grants_admin()
 and (Phase 4) by sink detection. Patterns are matched case-insensitively with * wildcards.
 """
 
 # Concrete admin-equivalent actions. A granted action pattern (e.g. "*", "iam:*",
 # "iam:Create*") is admin-equivalent if it *covers* one of these. Keep these CONCRETE
-# (no "*"/"iam:*" here) — the "does the grant cover a dangerous action" test lives in
+# (no "*"/"iam:*" here) â€” the "does the grant cover a dangerous action" test lives in
 # grants_admin(), and putting wildcards here would make every action match.
 ADMIN_EQUIVALENT_ACTIONS = {
     # policy mutation
@@ -27,6 +27,13 @@ ADMIN_EQUIVALENT_ACTIONS = {
     "iam:UpdateAssumeRolePolicy",
     "iam:PassRole",                       # enabling primitive (Phase 0 scenario 2)
     "sts:AssumeRole",
+    # instance-profile manipulation (Phase 0 scenario 2 — walkthrough 2 step 3).
+    # Individually mundane; combined with PassRole + a compute action they are the
+    # attachment escalation. Listed for the same reason PassRole is: enabling primitive.
+    "iam:AddRoleToInstanceProfile",
+    "iam:RemoveRoleFromInstanceProfile",
+    "ec2:AssociateIamInstanceProfile",
+    "ec2:ReplaceIamInstanceProfileAssociation",
     # compute-based (PassRole + these = launch-as)
     "ec2:RunInstances",
     "lambda:CreateFunction",

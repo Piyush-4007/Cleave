@@ -1,0 +1,106 @@
+{
+  "name": "CloudGoat iam_privesc_by_attachment — kerrigan reaches admin via PassRole + RunInstances",
+  "ground_truth": "screenshots/phase0-iam_privesc_by_attachment/walkthrough.md",
+  "story": "kerrigan cannot assume cg-ec2-mighty-role. But he can pass it and launch EC2, so he boots an instance carrying the admin role and reads its credentials from IMDS. Neither iam:PassRole nor ec2:RunInstances is alarming alone — the path exists because they are held together, which is exactly what a per-resource scanner cannot see.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/kerrigan",
+      "UserName": "kerrigan",
+      "AttachedPolicies": [], "Groups": [], "AccessKeys": [],
+      "InlinePolicies": {
+        "cg-kerrigan-policy": {"Version": "2012-10-17", "Statement": [
+          {"Effect": "Allow",
+           "Action": ["iam:Get*", "iam:List*", "iam:PassRole",
+                      "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile"],
+           "Resource": "*"},
+          {"Effect": "Allow",
+           "Action": ["ec2:Describe*", "ec2:RunInstances", "ec2:CreateKeyPair",
+                      "ec2:GetConsoleOutput"],
+           "Resource": "*"}
+        ]}
+      }
+    },
+    {
+      "_type": "IamRole",
+      "_id": "arn:aws:iam::111122223333:role/cg-ec2-mighty-role",
+      "RoleName": "cg-ec2-mighty-role",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+      "InlinePolicies": {},
+      "TrustPolicy": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Principal": {"Service": "ec2.amazonaws.com"},
+         "Action": "sts:AssumeRole"}
+      ]}
+    },
+    {
+      "_type": "IamRole",
+      "_id": "arn:aws:iam::111122223333:role/cg-ec2-meek-role",
+      "RoleName": "cg-ec2-meek-role",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/cg-ec2-meek-policy"],
+      "InlinePolicies": {},
+      "TrustPolicy": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Principal": {"Service": "ec2.amazonaws.com"},
+         "Action": "sts:AssumeRole"}
+      ]}
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/cg-ec2-meek-policy",
+      "PolicyName": "cg-ec2-meek-policy",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "s3:GetObject",
+         "Resource": "arn:aws:s3:::cg-meek-bucket/*"}
+      ]}
+    },
+    {
+      "_type": "IamInstanceProfile",
+      "_id": "arn:aws:iam::111122223333:instance-profile/cg-ec2-meek-instance-profile",
+      "InstanceProfileName": "cg-ec2-meek-instance-profile",
+      "Roles": ["arn:aws:iam::111122223333:role/cg-ec2-meek-role"]
+    },
+    {
+      "_type": "Ec2Instance",
+      "_id": "i-0cgmeek00000000a",
+      "InstanceId": "i-0cgmeek00000000a",
+      "State": "running",
+      "PublicIpAddress": null,
+      "SubnetId": "subnet-cg1", "VpcId": "vpc-cg1",
+      "SecurityGroups": ["sg-cg1"],
+      "IamInstanceProfile": "arn:aws:iam::111122223333:instance-profile/cg-ec2-meek-instance-profile",
+      "ImdsHttpTokens": "optional"
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/kerrigan",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/kerrigan",
+          "arn:aws:iam::111122223333:role/cg-ec2-mighty-role",
+          "arn:aws:iam::aws:policy/AdministratorAccess",
+          "admin"
+        ],
+        "edges": ["CAN_LAUNCH_AS", "HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain",
+        "note": "the path actually walked by hand in Phase 0"
+      },
+      {
+        "source": "arn:aws:iam::111122223333:user/kerrigan",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/kerrigan",
+          "arn:aws:iam::111122223333:user/kerrigan#inline/cg-kerrigan-policy",
+          "admin"
+        ],
+        "edges": ["HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain",
+        "note": "shorter and also true: kerrigan's own inline policy holds admin-equivalent primitives. Phase 5 dedup/ranking decides which to surface."
+      }
+    ],
+    "no_paths_from": ["arn:aws:iam::111122223333:role/cg-ec2-meek-role"],
+    "total_paths": 2
+  }
+}

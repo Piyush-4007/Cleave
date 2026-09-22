@@ -1,0 +1,23 @@
+{
+  "name": "v1 is conservative: an identity statement with no Resource matches nothing",
+  "note": "Valid on a resource-BASED policy (implicitly 'this resource'). Treating it as a match on identity policies would allow everything. TODO v2: evaluate resource policies properly.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::any/x"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "Permissions are the union of all attached policies",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*"
+        }
+      ]
+    },
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:PassRole",
+          "Resource": "arn:aws:iam::1:role/mighty"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:PassRole",
+    "resource": "arn:aws:iam::1:role/mighty"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

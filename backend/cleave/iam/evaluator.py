@@ -150,3 +150,22 @@ def grants_admin(policy: dict) -> EvalResult:
                     return EvalResult(Decision.ALLOW, conf,
                                       f"admin-equivalent permission '{a}'", [st])
     return EvalResult(Decision.DENY, Confidence.CERTAIN, "no admin-equivalent permission", [])
+
+
+def is_full_admin(policy: dict) -> bool:
+    """True only for *literal* full administrator: an unconditional `Allow *` on `*`.
+
+    Deliberately narrower than `grants_admin()`, which also fires on escalation
+    *primitives* (`iam:SetDefaultPolicyVersion`, `iam:PassRole`, …). Path search needs
+    the distinction: a principal that already holds `*:*` is the account's baseline, not
+    a privilege-escalation finding, so it is excluded as a path source. A principal
+    holding only a primitive still has to escalate — and that escalation IS the finding.
+    """
+    for st in _statements([policy]):
+        if st.get("Effect") != "Allow" or "Condition" in st:
+            continue
+        # TODO v2: NotAction-based admin ("NotAction": []) is admin too; rare, deferred.
+        if any(a == "*" for a in _as_list(st.get("Action"))) and \
+           any(r == "*" for r in _as_list(st.get("Resource"))):
+            return True
+    return False

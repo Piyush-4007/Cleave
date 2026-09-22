@@ -93,7 +93,6 @@ class GraphLoader:
             if isinstance(data, list):
                 records.extend(data)
         by_id = {r["_id"]: r for r in records}
-        groups_by_name = {r["GroupName"]: r["_id"] for r in records if r["_type"] == "IamGroup"}
 
         with self._driver.session() as s:
             # uniqueness constraint on uid per label -> fast MERGE, no cartesian warnings
@@ -115,10 +114,10 @@ class GraphLoader:
             from .evaluated import compute_evaluated_edges
             cred_path = raw / "_credentials.json"
             cred_findings = json.loads(cred_path.read_text()) if cred_path.exists() else []
-            edges = list(self._derive_edges(records, by_id, groups_by_name))
+            edges = list(derive_structural_edges(records))
             edges += compute_evaluated_edges(records, cred_findings)
             # ensure stub target nodes (AWS-managed policies, external/inline principals) exist
-            for stub in self._stub_nodes(edges, by_id):
+            for stub in stub_nodes(edges, by_id):
                 s.execute_write(self._merge_node, stub["label"], stub["uid"], stub["props"])
             for e in edges:
                 s.execute_write(self._merge_edge, e)
@@ -127,95 +126,99 @@ class GraphLoader:
         log.info("loaded %d nodes, %d edges", counts["nodes"], counts["edges"])
         return counts
 
-    # ---- edge derivation (structural only) ----
-    def _derive_edges(self, records, by_id, groups_by_name) -> Iterable[dict]:
-        for r in records:
-            t = r["_type"]
 
-            if t in ("IamUser", "IamRole", "IamGroup"):
-                for arn in r.get("AttachedPolicies", []):
-                    yield _edge(r["_id"], arn, "HAS_ATTACHED",
-                                f"{t} has managed policy attached", f"{r['_id']}#AttachedPolicies")
-                for pname in (r.get("InlinePolicies") or {}):
-                    inline_id = f"{r['_id']}#inline/{pname}"
-                    yield _edge(r["_id"], inline_id, "HAS_ATTACHED",
-                                f"{t} has inline policy {pname}", f"{r['_id']}#InlinePolicies/{pname}")
+# ---- structural edge derivation -------------------------------------------------
+# Module-level and pure so anything that needs the structural graph can call it without
+# a Neo4j driver (Phase 4 path search builds its NetworkX view straight from records).
+def derive_structural_edges(records: list[dict]) -> Iterable[dict]:
+    """Phase 2 structural edges: read straight from config, no judgment, all Certain."""
+    groups_by_name = {r["GroupName"]: r["_id"] for r in records if r["_type"] == "IamGroup"}
+    for r in records:
+        t = r["_type"]
 
-            if t == "IamUser":
-                for gname in r.get("Groups", []):
-                    gid = groups_by_name.get(gname)
-                    if gid:
-                        yield _edge(r["_id"], gid, "IN_GROUP",
-                                    f"user is member of group {gname}", f"{r['_id']}#Groups")
+        if t in ("IamUser", "IamRole", "IamGroup"):
+            for arn in r.get("AttachedPolicies", []):
+                yield _edge(r["_id"], arn, "HAS_ATTACHED",
+                            f"{t} has managed policy attached", f"{r['_id']}#AttachedPolicies")
+            for pname in (r.get("InlinePolicies") or {}):
+                inline_id = f"{r['_id']}#inline/{pname}"
+                yield _edge(r["_id"], inline_id, "HAS_ATTACHED",
+                            f"{t} has inline policy {pname}", f"{r['_id']}#InlinePolicies/{pname}")
 
-            if t == "IamInstanceProfile":
-                for role_arn in r.get("Roles", []):
-                    yield _edge(r["_id"], role_arn, "CONTAINS_ROLE",
-                                "instance profile carries role", f"{r['_id']}#Roles")
+        if t == "IamUser":
+            for gname in r.get("Groups", []):
+                gid = groups_by_name.get(gname)
+                if gid:
+                    yield _edge(r["_id"], gid, "IN_GROUP",
+                                f"user is member of group {gname}", f"{r['_id']}#Groups")
 
-            if t == "Ec2Instance":
-                prof = r.get("IamInstanceProfile")
-                if prof:
-                    yield _edge(r["_id"], prof, "HAS_INSTANCE_PROFILE",
-                                "instance uses this instance profile", f"{r['_id']}#IamInstanceProfile")
-                if r.get("SubnetId"):
-                    yield _edge(r["_id"], r["SubnetId"], "IN_SUBNET",
-                                "instance lives in subnet", f"{r['_id']}#SubnetId")
-                for sg in r.get("SecurityGroups", []):
-                    yield _edge(r["_id"], sg, "PROTECTED_BY",
-                                "instance guarded by security group", f"{r['_id']}#SecurityGroups")
+        if t == "IamInstanceProfile":
+            for role_arn in r.get("Roles", []):
+                yield _edge(r["_id"], role_arn, "CONTAINS_ROLE",
+                            "instance profile carries role", f"{r['_id']}#Roles")
 
-            if t == "LambdaFunction" and r.get("Role"):
-                yield _edge(r["_id"], r["Role"], "EXECUTES_AS",
-                            "function runs as this role", f"{r['_id']}#Role")
+        if t == "Ec2Instance":
+            prof = r.get("IamInstanceProfile")
+            if prof:
+                yield _edge(r["_id"], prof, "HAS_INSTANCE_PROFILE",
+                            "instance uses this instance profile", f"{r['_id']}#IamInstanceProfile")
+            if r.get("SubnetId"):
+                yield _edge(r["_id"], r["SubnetId"], "IN_SUBNET",
+                            "instance lives in subnet", f"{r['_id']}#SubnetId")
+            for sg in r.get("SecurityGroups", []):
+                yield _edge(r["_id"], sg, "PROTECTED_BY",
+                            "instance guarded by security group", f"{r['_id']}#SecurityGroups")
 
-            if t == "IamRole" and isinstance(r.get("TrustPolicy"), dict):
-                for principal in _trust_principals(r["TrustPolicy"]):
-                    yield _edge(principal, r["_id"], "CAN_ASSUME",
-                                "principal is trusted to assume this role",
-                                f"{r['_id']}#TrustPolicy", confidence="Certain")
+        if t == "LambdaFunction" and r.get("Role"):
+            yield _edge(r["_id"], r["Role"], "EXECUTES_AS",
+                        "function runs as this role", f"{r['_id']}#Role")
 
-            if t == "Subnet":
-                if r.get("VpcId"):
-                    yield _edge(r["_id"], r["VpcId"], "IN_VPC",
-                                "subnet belongs to vpc", f"{r['_id']}#VpcId")
+        if t == "IamRole" and isinstance(r.get("TrustPolicy"), dict):
+            for principal in _trust_principals(r["TrustPolicy"]):
+                yield _edge(principal, r["_id"], "CAN_ASSUME",
+                            "principal is trusted to assume this role",
+                            f"{r['_id']}#TrustPolicy", confidence="Certain")
 
-            if t == "RouteTable":
-                for assoc in r.get("Associations", []):
-                    sn = assoc.get("SubnetId")
-                    if sn:
-                        yield _edge(sn, r["_id"], "ROUTES_VIA",
-                                    "subnet uses this route table", f"{r['_id']}#Associations")
-                for route in r.get("Routes", []):
-                    gw = route.get("GatewayId", "")
-                    if str(gw).startswith("igw-") and route.get("DestinationCidrBlock") == "0.0.0.0/0":
-                        yield _edge(r["_id"], gw, "HAS_INTERNET_ROUTE",
-                                    "route table has 0.0.0.0/0 -> internet gateway",
-                                    f"{r['_id']}#Routes")
+        if t == "Subnet":
+            if r.get("VpcId"):
+                yield _edge(r["_id"], r["VpcId"], "IN_VPC",
+                            "subnet belongs to vpc", f"{r['_id']}#VpcId")
 
-    def _stub_nodes(self, edges, by_id):
-        """Create minimal nodes for edge targets we didn't collect (AWS-managed policies,
-        inline-policy nodes, external/service principals) so edges have something to land on."""
-        seen = set()
-        known = set(by_id) | {"internet", "admin"}
-        for e in (edges or []):
-            for uid in (e["frm"], e["to"]):
-                if uid in known or uid in seen:
-                    continue
-                seen.add(uid)
-                if "#inline/" in uid:
-                    yield {"label": "IamPolicy", "uid": uid,
-                           "props": {"label": "IamPolicy", "Inline": True,
-                                     "PolicyName": uid.split("/")[-1], "_raw": "{}"}}
-                elif uid.startswith("arn:aws:iam::aws:policy/"):
-                    yield {"label": "IamPolicy", "uid": uid,
-                           "props": {"label": "IamPolicy", "ManagedBy": "AWS",
-                                     "PolicyName": uid.split("/")[-1], "_raw": "{}"}}
-                elif uid.startswith("arn:aws:iam::") or uid.startswith("service:") or uid == "*":
-                    yield {"label": "Principal", "uid": uid,
-                           "props": {"label": "Principal", "Name": uid, "_raw": "{}"}}
-                # anything else (e.g. igw-, subnet-) is a real collected node or absent; skip
+        if t == "RouteTable":
+            for assoc in r.get("Associations", []):
+                sn = assoc.get("SubnetId")
+                if sn:
+                    yield _edge(sn, r["_id"], "ROUTES_VIA",
+                                "subnet uses this route table", f"{r['_id']}#Associations")
+            for route in r.get("Routes", []):
+                gw = route.get("GatewayId", "")
+                if str(gw).startswith("igw-") and route.get("DestinationCidrBlock") == "0.0.0.0/0":
+                    yield _edge(r["_id"], gw, "HAS_INTERNET_ROUTE",
+                                "route table has 0.0.0.0/0 -> internet gateway",
+                                f"{r['_id']}#Routes")
 
+def stub_nodes(edges, by_id):
+    """Create minimal nodes for edge targets we didn't collect (AWS-managed policies,
+    inline-policy nodes, external/service principals) so edges have something to land on."""
+    seen = set()
+    known = set(by_id) | {"internet", "admin"}
+    for e in (edges or []):
+        for uid in (e["frm"], e["to"]):
+            if uid in known or uid in seen:
+                continue
+            seen.add(uid)
+            if "#inline/" in uid:
+                yield {"label": "IamPolicy", "uid": uid,
+                       "props": {"label": "IamPolicy", "Inline": True,
+                                 "PolicyName": uid.split("/")[-1], "_raw": "{}"}}
+            elif uid.startswith("arn:aws:iam::aws:policy/"):
+                yield {"label": "IamPolicy", "uid": uid,
+                       "props": {"label": "IamPolicy", "ManagedBy": "AWS",
+                                 "PolicyName": uid.split("/")[-1], "_raw": "{}"}}
+            elif uid.startswith("arn:aws:iam::") or uid.startswith("service:") or uid == "*":
+                yield {"label": "Principal", "uid": uid,
+                       "props": {"label": "Principal", "Name": uid, "_raw": "{}"}}
+            # anything else (e.g. igw-, subnet-) is a real collected node or absent; skip
 
 def _trust_principals(trust: dict) -> list[str]:
     """Pull AWS/Service principals out of a role trust policy (Allow + sts:AssumeRole)."""

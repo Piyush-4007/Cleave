@@ -1,0 +1,20 @@
+{
+  "name": "Allow *:* is literal full administrator",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  },
+  "expect_full_admin": true
+}

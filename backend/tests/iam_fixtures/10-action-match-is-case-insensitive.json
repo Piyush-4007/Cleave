@@ -1,0 +1,23 @@
+{
+  "name": "AWS action names are case-insensitive: 'IAM:listusers' permits iam:ListUsers",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "IAM:listusers",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:ListUsers",
+    "resource": "*"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

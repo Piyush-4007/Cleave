@@ -1,0 +1,23 @@
+{
+  "name": "PassRole scoped to the meek role does not let you pass the mighty role",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:PassRole",
+          "Resource": "arn:aws:iam::1:role/meek"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:PassRole",
+    "resource": "arn:aws:iam::1:role/mighty"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

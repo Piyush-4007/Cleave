@@ -1,0 +1,25 @@
+{
+  "name": "iam:SetDefaultPolicyVersion is admin-EQUIVALENT but not literal *:* (Phase 0 scenario 1)",
+  "note": "This distinction is what keeps raynor a valid path SOURCE while still drawing his GRANTS_ADMIN edge.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "iam:Get*",
+            "iam:List*",
+            "iam:SetDefaultPolicyVersion"
+          ],
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  },
+  "expect_full_admin": false
+}

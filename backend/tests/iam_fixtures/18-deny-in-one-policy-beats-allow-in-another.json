@@ -1,0 +1,33 @@
+{
+  "name": "An unconditional Deny anywhere beats an Allow in a different policy",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        }
+      ]
+    },
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Deny",
+          "Action": "iam:DeleteUser",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:DeleteUser",
+    "resource": "*"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "NotResource: Allow everything except the vault bucket - vault is denied",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:*",
+          "NotResource": "arn:aws:s3:::vault/*"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::vault/keys.env"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

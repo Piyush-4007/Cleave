@@ -1,0 +1,20 @@
+{
+  "name": "s3:* on * is powerful but not admin-equivalent - it reaches no escalation primitive",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  },
+  "expect_full_admin": false
+}

@@ -95,9 +95,41 @@ IGW), so the scaffolding belongs in the structural layer.
 | `CAN_READ` / `CAN_WRITE` | Principal → resource | IAM eval of action on resource | read/modify the resource (incl. `iam:SetDefaultPolicyVersion` — **Phase 0 scenario 1**) |
 | `CAN_REACH` | Internet/resource → resource | network reachability chain | a network packet can arrive (public IP + SG + route) |
 | `CONTAINS_CREDENTIAL` | S3Bucket/LambdaFunction env → Principal | credential scanning | found a key/secret that unlocks a principal |
-| `GRANTS_ADMIN` | IamPolicy → (admin marker) | admin-equivalent permission catalogue | this policy is admin-equivalent (`*:*`, or a permission that reaches `*:*`) |
+| `GRANTS_ADMIN` | IamPolicy → `Admin` | admin-equivalent permission catalogue | this policy is admin-equivalent (`*:*`, or a permission that reaches `*:*`) |
+
+**`GRANTS_ADMIN` carries an extra property, `full_admin` (bool).** `True` only for a
+literal unconditional `Allow *` on `*`; `False` when the policy merely holds an escalation
+*primitive* (`iam:SetDefaultPolicyVersion`, `iam:PassRole`, …). Phase 4 path search needs
+the distinction: a principal holding `full_admin` is the account's baseline and is excluded
+as a path source, whereas a principal holding only a primitive still has to escalate — and
+that escalation is the finding. Collapsing the two would delete both Phase 0 scenarios from
+the results.
+
+**Inline policies are nodes too.** The loader materialises them as
+`<identity_arn>#inline/<name>`; `GRANTS_ADMIN` is computed for them alongside managed
+policies. (They were missed until Phase 4 — an inline admin policy produced no edge.)
 
 ---
+
+### C. Which edges path search may WALK (Phase 4)
+
+Defining an edge is not the same as saying an attacker can traverse it. Path search uses an
+explicit allowlist (`paths/search.py`), and a test asserts every edge type in the loader is
+classified as exactly one of:
+
+- **Traversable** — using the edge *is* an attacker action: `HAS_ATTACHED`, `IN_GROUP`,
+  `HAS_INSTANCE_PROFILE`, `CONTAINS_ROLE`, `EXECUTES_AS`, `CAN_ASSUME`, `CAN_PASS_ROLE`,
+  `CAN_LAUNCH_AS`, `GRANTS_ADMIN`, `CAN_REACH`, `CONTAINS_CREDENTIAL`.
+  The structural ones belong here: a principal reaches its powers *through* them, and
+  dropping them disconnects every IAM path in the graph.
+- **Context only** — `IN_SUBNET`, `IN_VPC`, `PROTECTED_BY`, `ROUTES_VIA`,
+  `HAS_INTERNET_ROUTE`. These exist so `CAN_REACH` can be *computed*; walking them would
+  emit paths like "instance → subnet → vpc" that no attacker can traverse. They stay in
+  the graph for Phase 6 to draw as context.
+
+Where two nodes are joined by several relationship types (kerrigan has both
+`CAN_PASS_ROLE` and `CAN_LAUNCH_AS` to the same role) the path reports the most damning
+one and lists the rest under `alternatives`.
 
 ## How the two Phase 0 attacks appear in the graph (ground truth)
 
