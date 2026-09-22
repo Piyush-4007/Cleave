@@ -2,7 +2,9 @@
 defence against a silently-broken IAM evaluator -- grow it as v1/v2 evolve (handbook).
 
 A fixture declares one or more expectations:
-  `query` + `expect`        -> is_allowed(policies, action, resource)
+  `query` + `expect`        -> is_allowed(policies, action, resource, ...)
+                               optional `resource_policy` (doc) and `query.principal`
+                               (caller ARN) bring in the resource-based side
   `expect_grants_admin`     -> grants_admin(policies[0])      (is this policy a route to admin?)
   `expect_full_admin`       -> is_full_admin(policies[0])     (is it literally `*:*`?)
 
@@ -25,7 +27,9 @@ def test_fixture(path):
 
     if "query" in fx:
         q, exp = fx["query"], fx["expect"]
-        res = is_allowed(fx["policies"], q["action"], q["resource"])
+        res = is_allowed(fx["policies"], q["action"], q["resource"],
+                         resource_policy=fx.get("resource_policy"),
+                         principal=q.get("principal"))
         assert res.decision.value == exp["decision"], f"{fx['name']}: {res.reason}"
         assert res.confidence.value == exp["confidence"], f"{fx['name']}: {res.reason}"
         checked = True
@@ -46,7 +50,7 @@ def test_fixture(path):
 
 def test_have_enough_fixtures():
     # handbook: ~20 fixtures by end of Phase 3. Fail if the suite ever shrinks.
-    assert len(FIXTURES) >= 20
+    assert len(FIXTURES) >= 35
 
 
 def test_decision_and_confidence_are_the_only_vocabulary():

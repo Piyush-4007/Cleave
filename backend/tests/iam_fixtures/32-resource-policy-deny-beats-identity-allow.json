@@ -1,0 +1,34 @@
+{
+  "name": "An explicit Deny in the bucket policy beats an identity Allow",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Deny",
+        "Principal": "*",
+        "Action": "s3:GetObject"
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::cg-data/secrets/.env",
+    "principal": "arn:aws:iam::111122223333:user/outsider"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

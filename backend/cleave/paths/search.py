@@ -1,11 +1,11 @@
-"""Path search (Phase 4 v1) — find the routes from a source to admin.
+"""Path search — find the routes from a source to admin.
 
-v1 searches the edges the graph already holds. Both Phase 0 ground-truth scenarios are
-reachable that way (rollback is HAS_ATTACHED -> GRANTS_ADMIN; attachment is
-CAN_LAUNCH_AS -> HAS_ATTACHED -> GRANTS_ADMIN), so lazy CAN_READ/CAN_WRITE evaluation is
-NOT needed yet. It arrives in increment 2, where credential-theft paths
-(attacker -> CAN_READ -> bucket -> CONTAINS_CREDENTIAL -> victim) need the read hop
-evaluated during traversal.
+Increment 1 searched only the edges the graph already held; both Phase 0 ground-truth
+scenarios are reachable that way (rollback is HAS_ATTACHED -> GRANTS_ADMIN; attachment is
+CAN_LAUNCH_AS -> HAS_ATTACHED -> GRANTS_ADMIN). Increment 2 adds CAN_READ/CAN_WRITE,
+computed on demand before the search (see paths/access.py), which is what makes
+credential-theft paths visible:
+    attacker -> CAN_READ -> bucket -> CONTAINS_CREDENTIAL -> victim -> ... -> Admin
 
 Hop limit 6, K=5 shortest simple paths per source-sink pair (Yen's algorithm, via
 networkx.shortest_simple_paths). If a scenario finds nothing, the edges are wrong —
@@ -13,6 +13,7 @@ raising the hop limit is the handbook's named trap.
 """
 from __future__ import annotations
 import networkx as nx
+from .access import access_edges, expansion_targets
 from .endpoints import find_sinks, find_sources
 from .model import AttackPath, Hop, Sink, Source
 
@@ -35,6 +36,8 @@ TRAVERSABLE = {
     "GRANTS_ADMIN":         "this policy is administrator-equivalent",
     "CAN_REACH":            "a network packet can arrive from the internet",
     "CONTAINS_CREDENTIAL":  "a credential stored here unlocks this principal",
+    "CAN_READ":             "read the resource — its contents, including any credential in them",
+    "CAN_WRITE":            "modify the resource — e.g. overwrite function code that runs as a role",
 }
 
 # Context, never a step. These exist so CAN_REACH can be *computed*; walking them would
@@ -58,6 +61,7 @@ CONTEXT_ONLY = {
 REL_RANK = {rel: i for i, rel in enumerate([
     "CAN_LAUNCH_AS", "CAN_ASSUME", "CONTAINS_CREDENTIAL", "CAN_REACH",
     "HAS_INSTANCE_PROFILE", "CONTAINS_ROLE", "EXECUTES_AS",
+    "CAN_WRITE", "CAN_READ",
     "GRANTS_ADMIN", "HAS_ATTACHED", "IN_GROUP",
 ])}
 
@@ -94,13 +98,46 @@ def _materialise(g: nx.DiGraph, nodes: list[str], source: Source, sink: Sink) ->
     return AttackPath(source=source, sink=sink, nodes=list(nodes), hops=hops)
 
 
-def find_paths(g: nx.DiGraph, sources=None, sinks=None,
-               max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> list[AttackPath]:
-    """All routes (up to k per source-sink pair, up to max_hops long) from a source to a
-    sink. Sorted shortest-first; ranking and deduplication are Phase 5."""
+def _expand_access(sub: nx.DiGraph, sources, sinks) -> int:
+    """Add the CAN_READ/CAN_WRITE edges that could matter to the *search* graph.
+
+    Demand-driven: only resources that lead somewhere, only candidate source principals.
+    Runs before the search so traversal still operates on a static graph.
+    """
+    from .graphview import _add_edge
+    sink_uids = frozenset(s.uid for s in sinks)
+    targets = expansion_targets(sub, set(TRAVERSABLE), sink_uids)
+    if not targets:
+        return 0
+    edges = access_edges(sub, [s.uid for s in sources], targets)
+    for e in edges:
+        _add_edge(sub, e)
+    return len(edges)
+
+
+def search_graph(g: nx.DiGraph, sources, sinks, expand: bool = True) -> nx.DiGraph:
+    """The graph a search actually runs on: context edges dropped, access edges added.
+
+    Always a fresh copy — `g` is never modified. Searching the same graph twice must give
+    the same answer, and Phase 6 will hold one graph and query it repeatedly.
+    """
     sub = traversable_subgraph(g)
+    if expand:
+        _expand_access(sub, sources, sinks)
+    return sub
+
+
+def find_paths(g: nx.DiGraph, sources=None, sinks=None,
+               max_hops: int = MAX_HOPS, k: int = K_PER_PAIR,
+               expand: bool = True) -> list[AttackPath]:
+    """All routes (up to k per source-sink pair, up to max_hops long) from a source to a
+    sink. Sorted shortest-first; ranking and deduplication are Phase 5.
+
+    `expand=False` skips CAN_READ/CAN_WRITE expansion — useful to isolate which edges a
+    result came from."""
     sources = find_sources(g) if sources is None else sources
     sinks = find_sinks(g) if sinks is None else sinks
+    sub = search_graph(g, sources, sinks, expand=expand)
 
     found: list[AttackPath] = []
     for src in sources:

@@ -15,7 +15,9 @@ from cleave.graph.loader import EDGE_TYPES
 from cleave.paths.endpoints import bucket_public_reason, find_sinks, find_sources, holds_full_admin
 from cleave.paths.graphview import graph_from_records, rels_between
 from cleave.paths.model import ASSUMED_COMPROMISE, EXTERNAL
-from cleave.paths.search import CONTEXT_ONLY, TRAVERSABLE, find_paths, traversable_subgraph
+from cleave.paths.access import effective_policy_docs, expansion_targets
+from cleave.paths.search import (CONTEXT_ONLY, TRAVERSABLE, find_paths, search_graph,
+                                 traversable_subgraph)
 
 FIX_DIR = pathlib.Path(__file__).parent / "path_fixtures"
 FIXTURES = sorted(FIX_DIR.glob("*.json"))
@@ -241,3 +243,124 @@ def test_narration_is_deterministic_and_mentions_every_hop():
     assert text == found[0].narrate()
     for h in found[0].hops:
         assert h.rel in text
+
+
+# ---- CAN_READ / CAN_WRITE expansion (increment 2) ------------------------------------
+
+def test_expansion_skips_dead_end_resources():
+    """Demand-driven: a bucket nobody can pivot through is not worth evaluating access to,
+    however readable it is. This is what keeps the cost off a principal x resource
+    cross product."""
+    records = [
+        {"_type": "S3Bucket", "_id": "arn:aws:s3:::dead-end", "Name": "dead-end",
+         "Policy": None, "Acl": [], "PublicAccessBlock": None},
+    ]
+    g = graph_from_records(records)
+    assert expansion_targets(g, set(TRAVERSABLE)) == []
+
+
+def test_expansion_targets_a_bucket_holding_a_credential():
+    records = [
+        {"_type": "S3Bucket", "_id": "arn:aws:s3:::leaky", "Name": "leaky",
+         "Policy": None, "Acl": [], "PublicAccessBlock": None},
+        {"_type": "IamUser", "_id": "arn:aws:iam::1:user/victim", "UserName": "victim",
+         "AttachedPolicies": [], "Groups": [], "InlinePolicies": {},
+         "AccessKeys": [{"AccessKeyId": "AKIAEXAMPLE000000001"}]},
+    ]
+    creds = [{"bucket_id": "arn:aws:s3:::leaky", "object_key": "x/.env",
+              "key_id": "AKIAEXAMPLE000000001", "key_type": "AKIA",
+              "owner_arn": "arn:aws:iam::1:user/victim"}]
+    g = graph_from_records(records, creds)
+    assert expansion_targets(g, set(TRAVERSABLE)) == ["arn:aws:s3:::leaky"]
+
+
+def test_can_read_granted_by_a_bucket_policy_alone():
+    """The read hop must consider the resource-based side: outsider holds no S3 permission
+    at all, but the bucket policy names him."""
+    outsider = "arn:aws:iam::1:user/outsider"
+    records = [
+        {"_type": "IamUser", "_id": outsider, "UserName": "outsider",
+         "AttachedPolicies": ["arn:aws:iam::1:policy/nothing-useful"],
+         "Groups": [], "InlinePolicies": {}, "AccessKeys": []},
+        {"_type": "IamPolicy", "_id": "arn:aws:iam::1:policy/nothing-useful",
+         "PolicyName": "nothing-useful",
+         "Document": {"Statement": [{"Effect": "Allow", "Action": "ec2:Describe*",
+                                     "Resource": "*"}]}},
+        {"_type": "S3Bucket", "_id": "arn:aws:s3:::shared", "Name": "shared",
+         "PublicAccessBlock": None, "Acl": [],
+         "Policy": {"Statement": [{"Effect": "Allow", "Principal": {"AWS": outsider},
+                                   "Action": "s3:GetObject"}]}},
+        {"_type": "IamUser", "_id": "arn:aws:iam::1:user/privileged", "UserName": "privileged",
+         "AttachedPolicies": ["arn:aws:iam::1:policy/priv"], "Groups": [], "InlinePolicies": {},
+         "AccessKeys": [{"AccessKeyId": "AKIAEXAMPLE000000002"}]},
+        {"_type": "IamPolicy", "_id": "arn:aws:iam::1:policy/priv", "PolicyName": "priv",
+         "Document": {"Statement": [{"Effect": "Allow", "Action": "iam:CreateAccessKey",
+                                     "Resource": "*"}]}},
+    ]
+    creds = [{"bucket_id": "arn:aws:s3:::shared", "object_key": "creds.json",
+              "key_id": "AKIAEXAMPLE000000002", "key_type": "AKIA",
+              "owner_arn": "arn:aws:iam::1:user/privileged"}]
+    g = graph_from_records(records, creds)
+    paths = find_paths(g)
+    sub = search_graph(g, find_sources(g), find_sinks(g))
+    assert rels_between(sub, outsider, "arn:aws:s3:::shared") == {"CAN_READ"}
+    theft = [p for p in paths if p.source.uid == outsider]
+    assert len(theft) == 1
+    assert [h.rel for h in theft[0].hops] == \
+        ["CAN_READ", "CONTAINS_CREDENTIAL", "HAS_ATTACHED", "GRANTS_ADMIN"]
+
+
+def test_can_write_to_a_lambda_reaches_its_role():
+    """Overwrite the code and it runs as the execution role. EXECUTES_AS is the hop that
+    makes the write worth anything."""
+    attacker = "arn:aws:iam::1:user/attacker"
+    fn = "arn:aws:lambda:us-east-1:1:function:reporter"
+    role = "arn:aws:iam::1:role/reporter-role"
+    records = [
+        {"_type": "IamUser", "_id": attacker, "UserName": "attacker",
+         "AttachedPolicies": [], "Groups": [],
+         "InlinePolicies": {"p": {"Statement": [
+             {"Effect": "Allow", "Action": "lambda:UpdateFunctionCode", "Resource": "*"}]}}},
+        {"_type": "LambdaFunction", "_id": fn, "FunctionName": "reporter", "Role": role,
+         "FunctionUrlAuthType": None, "EnvVars": {}},
+        {"_type": "IamRole", "_id": role, "RoleName": "reporter-role",
+         "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+         "InlinePolicies": {}, "TrustPolicy": {}},
+        ADMIN_POLICY,
+    ]
+    g = graph_from_records(records)
+    routes = [[h.rel for h in p.hops] for p in find_paths(g)
+              if p.source.uid == attacker]
+    assert ["CAN_WRITE", "EXECUTES_AS", "HAS_ATTACHED", "GRANTS_ADMIN"] in routes, routes
+
+
+def test_inline_policy_documents_are_readable_from_the_graph():
+    """Inline policies are nodes without their own IAM object; the graph must still carry
+    the document or access expansion cannot see what they grant."""
+    uid = "arn:aws:iam::1:user/u"
+    doc = {"Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}
+    g = graph_from_records([
+        {"_type": "IamUser", "_id": uid, "UserName": "u", "AttachedPolicies": [],
+         "Groups": [], "InlinePolicies": {"only": doc}},
+    ])
+    assert effective_policy_docs(g, uid) == [doc]
+
+
+def test_expansion_can_be_switched_off():
+    """Isolating which edges produced a result matters when a path looks wrong."""
+    _fx, g, _ = _load(FIX_DIR / "05-credential-theft-via-bucket-read.json")
+    without = find_paths(g, expand=False)
+    assert all("CAN_READ" not in [h.rel for h in p.hops] for p in without)
+    assert len(without) < len(find_paths(g))
+
+
+def test_search_does_not_mutate_the_stored_graph():
+    """Access expansion happens on a copy. The same graph searched twice must give the
+    same answer, and the graph Phase 6 holds must not silently grow edges underneath it."""
+    _fx, g, _ = _load(FIX_DIR / "05-credential-theft-via-bucket-read.json")
+    before = (g.number_of_nodes(), g.number_of_edges())
+    first = [_signature(p) for p in find_paths(g)]
+    second = [_signature(p) for p in find_paths(g)]
+    assert (g.number_of_nodes(), g.number_of_edges()) == before
+    assert first == second
+    assert not any("CAN_READ" in rels_between(g, a, b) for a, b in g.edges())

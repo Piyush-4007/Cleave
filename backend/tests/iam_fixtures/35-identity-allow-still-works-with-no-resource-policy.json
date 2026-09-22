@@ -1,0 +1,24 @@
+{
+  "name": "Regression: an identity Allow alone is still sufficient when no resource policy exists",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::cg-data/*"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::cg-data/secrets/.env",
+    "principal": "arn:aws:iam::111122223333:user/outsider"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

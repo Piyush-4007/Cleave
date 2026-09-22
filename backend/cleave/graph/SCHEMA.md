@@ -92,7 +92,7 @@ IGW), so the scaffolding belongs in the structural layer.
 | `CAN_ASSUME` (refined) | Principal → IamRole | trust-policy `Condition` evaluation | assume the role, conditions permitting |
 | `CAN_PASS_ROLE` | Principal → IamRole | IAM eval: `iam:PassRole` on the role | hand this role to a service they launch |
 | `CAN_LAUNCH_AS` | Principal → IamRole | `CAN_PASS_ROLE` + `ec2:RunInstances`/`lambda:CreateFunction` | boot a resource carrying the role, then read its creds (**Phase 0 scenario 2**) |
-| `CAN_READ` / `CAN_WRITE` | Principal → resource | IAM eval of action on resource | read/modify the resource (incl. `iam:SetDefaultPolicyVersion` — **Phase 0 scenario 1**) |
+| `CAN_READ` / `CAN_WRITE` | Principal → resource | IAM eval of action on resource, **including the resource-based policy** | read or modify the resource — read a bucket holding a credential, or overwrite function code that runs as a role |
 | `CAN_REACH` | Internet/resource → resource | network reachability chain | a network packet can arrive (public IP + SG + route) |
 | `CONTAINS_CREDENTIAL` | S3Bucket/LambdaFunction env → Principal | credential scanning | found a key/secret that unlocks a principal |
 | `GRANTS_ADMIN` | IamPolicy → `Admin` | admin-equivalent permission catalogue | this policy is admin-equivalent (`*:*`, or a permission that reaches `*:*`) |
@@ -106,10 +106,42 @@ that escalation is the finding. Collapsing the two would delete both Phase 0 sce
 the results.
 
 **Inline policies are nodes too.** The loader materialises them as
-`<identity_arn>#inline/<name>`; `GRANTS_ADMIN` is computed for them alongside managed
-policies. (They were missed until Phase 4 — an inline admin policy produced no edge.)
+`<identity_arn>#inline/<name>`, **carrying their actual `Document`**; `GRANTS_ADMIN` is
+computed for them alongside managed policies. (They were missed until Phase 4 — an inline
+admin policy produced no edge, and the node held no document, so nothing reasoning from the
+graph could see what it granted.)
 
 ---
+
+**`CAN_READ` / `CAN_WRITE` are computed on demand, not at load time.** The honest version
+is a principal × resource cross product — on a 300-resource account, tens of thousands of
+policy evaluations for a handful of useful edges. Instead `paths/access.py` evaluates
+access only where it could matter: resources that already lead somewhere (they hold a
+credential, hand out a role, or are a sink) crossed with principals that are candidate
+path sources. The edges are added to the *search* graph, never to the stored one, so
+searching the same graph twice gives the same answer.
+
+The access model is deliberately small — one concrete attacker action per node type:
+
+| Node | Edge | Action evaluated | Resource-based policy read from |
+|---|---|---|---|
+| `S3Bucket` | `CAN_READ` / `CAN_WRITE` | `s3:GetObject` / `s3:PutObject` on `<arn>/*` | `Policy` |
+| `SecretsManagerSecret` | `CAN_READ` | `secretsmanager:GetSecretValue` | `ResourcePolicy` |
+| `LambdaFunction` | `CAN_WRITE` | `lambda:UpdateFunctionCode` | — |
+| `KmsKey` | `CAN_READ` | `kms:Decrypt` | `Policy` |
+
+`SsmParameter` and `RdsInstance` are deliberately absent: the SSM node's `_id` is
+`<region>:<Name>` rather than an ARN, so there is nothing correct to match an IAM
+`Resource` against (fix belongs in the collector), and database contents are not
+IAM-gated in the general case, so there is no read action to evaluate — RDS exposure is
+already covered by `CAN_REACH`.
+
+**Resource-based policies now participate in every evaluation.** Within one account an
+Allow on *either* side is sufficient and an explicit Deny on either wins, which is what
+AWS does. One subtlety worth knowing: `Principal: {"AWS": "arn:aws:iam::<acct>:root"}`
+means *"anyone in this account whose identity policy also allows it"* — it delegates to
+IAM rather than granting anything, so it is never treated as an independent Allow.
+Treating it as one would make every bucket readable by every principal in the account.
 
 ### C. Which edges path search may WALK (Phase 4)
 
@@ -119,7 +151,8 @@ classified as exactly one of:
 
 - **Traversable** — using the edge *is* a completed attacker action: `HAS_ATTACHED`,
   `IN_GROUP`, `HAS_INSTANCE_PROFILE`, `CONTAINS_ROLE`, `EXECUTES_AS`, `CAN_ASSUME`,
-  `CAN_LAUNCH_AS`, `GRANTS_ADMIN`, `CAN_REACH`, `CONTAINS_CREDENTIAL`.
+  `CAN_LAUNCH_AS`, `GRANTS_ADMIN`, `CAN_REACH`, `CONTAINS_CREDENTIAL`, `CAN_READ`,
+  `CAN_WRITE`.
   The structural ones belong here: a principal reaches its powers *through* them, and
   dropping them disconnects every IAM path in the graph.
 - **Context only** — `CAN_PASS_ROLE`, `IN_SUBNET`, `IN_VPC`, `PROTECTED_BY`, `ROUTES_VIA`,

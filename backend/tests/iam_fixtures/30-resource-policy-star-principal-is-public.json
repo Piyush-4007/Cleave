@@ -1,0 +1,24 @@
+{
+  "name": "Principal '*' in a bucket policy allows anyone, with no Resource on the statement",
+  "note": "Statements on resource-based policies routinely omit Resource, meaning 'this resource'. An identity policy written that way still matches nothing.",
+  "policies": [],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": "*",
+        "Action": "s3:GetObject"
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::cg-data/secrets/.env",
+    "principal": null
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

@@ -32,6 +32,8 @@ EDGE_TYPES = {
     "ROUTES_VIA", "HAS_INTERNET_ROUTE",
     # evaluated (Phase 3)
     "GRANTS_ADMIN", "CAN_PASS_ROLE", "CAN_LAUNCH_AS", "CAN_REACH", "CONTAINS_CREDENTIAL",
+    # evaluated on demand during path search (Phase 4 increment 2) — see paths/access.py
+    "CAN_READ", "CAN_WRITE",
 }
 
 
@@ -197,9 +199,26 @@ def derive_structural_edges(records: list[dict]) -> Iterable[dict]:
                                 "route table has 0.0.0.0/0 -> internet gateway",
                                 f"{r['_id']}#Routes")
 
+def _stub(label: str, uid: str, record: dict):
+    """A node we didn't collect as a record. `record` is the dict form (what in-memory
+    consumers read); `props` is the Neo4j form, with non-scalars folded into _raw."""
+    props = {k: v for k, v in record.items()
+             if not k.startswith("_") and isinstance(v, SCALAR)}
+    props["label"] = label
+    props["_raw"] = json.dumps(record, default=str)
+    return {"label": label, "uid": uid, "props": props, "record": record}
+
+
 def stub_nodes(edges, by_id):
-    """Create minimal nodes for edge targets we didn't collect (AWS-managed policies,
-    inline-policy nodes, external/service principals) so edges have something to land on."""
+    """Create nodes for edge targets we didn't collect as records (inline policies,
+    AWS-managed policies we couldn't read, external/service principals) so edges have
+    something to land on.
+
+    Inline-policy nodes carry their actual Document: the policy is real, it just lives on
+    the identity rather than as its own IAM object. Without it the graph holds an edge to
+    an empty node, and anything reasoning from the graph (Phase 4 access expansion, the
+    Phase 6 node inspector) cannot see what the policy grants.
+    """
     seen = set()
     known = set(by_id) | {"internet", "admin"}
     for e in (edges or []):
@@ -208,16 +227,18 @@ def stub_nodes(edges, by_id):
                 continue
             seen.add(uid)
             if "#inline/" in uid:
-                yield {"label": "IamPolicy", "uid": uid,
-                       "props": {"label": "IamPolicy", "Inline": True,
-                                 "PolicyName": uid.split("/")[-1], "_raw": "{}"}}
+                identity, name = uid.split("#inline/", 1)
+                doc = ((by_id.get(identity) or {}).get("InlinePolicies") or {}).get(name)
+                yield _stub("IamPolicy", uid, {
+                    "_type": "IamPolicy", "_id": uid, "PolicyName": name,
+                    "Inline": True, "AttachedTo": identity, "Document": doc})
             elif uid.startswith("arn:aws:iam::aws:policy/"):
-                yield {"label": "IamPolicy", "uid": uid,
-                       "props": {"label": "IamPolicy", "ManagedBy": "AWS",
-                                 "PolicyName": uid.split("/")[-1], "_raw": "{}"}}
+                yield _stub("IamPolicy", uid, {
+                    "_type": "IamPolicy", "_id": uid, "PolicyName": uid.split("/")[-1],
+                    "ManagedBy": "AWS", "Document": None})
             elif uid.startswith("arn:aws:iam::") or uid.startswith("service:") or uid == "*":
-                yield {"label": "Principal", "uid": uid,
-                       "props": {"label": "Principal", "Name": uid, "_raw": "{}"}}
+                yield _stub("Principal", uid, {
+                    "_type": "Principal", "_id": uid, "Name": uid})
             # anything else (e.g. igw-, subnet-) is a real collected node or absent; skip
 
 def _trust_principals(trust: dict) -> list[str]:

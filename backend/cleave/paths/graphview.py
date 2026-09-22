@@ -56,7 +56,7 @@ def graph_from_records(records: list[dict], cred_findings=()) -> nx.DiGraph:
         g.add_node(r["_id"], label=r["_type"], record=r)
     for stub in stub_nodes(edges, by_id):
         if stub["uid"] not in g:
-            g.add_node(stub["uid"], label=stub["label"], record=stub["props"])
+            g.add_node(stub["uid"], label=stub["label"], record=stub["record"])
     for e in edges:
         _add_edge(g, e)
     return g

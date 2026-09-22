@@ -67,16 +67,54 @@ def _action_matches(stmt: dict, action: str) -> bool:
     return False  # a statement with neither matches nothing
 
 
-def _resource_matches(stmt: dict, resource: str) -> bool:
+def _resource_matches(stmt: dict, resource: str, resource_policy: bool = False) -> bool:
     res = _as_list(stmt.get("Resource"))
     if res:
         return any(_glob(p, resource, ci=False) for p in res)
     nres = _as_list(stmt.get("NotResource"))
     if nres:
         return not any(_glob(p, resource, ci=False) for p in nres)
-    # No Resource/NotResource: valid on resource-based policies (implicitly "this resource").
-    # For v1 identity-policy evaluation we treat "absent" as no match to stay conservative.
-    return False
+    # No Resource/NotResource. On a resource-BASED policy that means "this resource" — the
+    # normal way bucket policies are written. On an identity policy it is not valid, and
+    # treating it as a match would allow everything, so we stay conservative there.
+    return resource_policy
+
+
+def _account_of(arn: str | None) -> str | None:
+    """The account id embedded in an ARN, if it has one."""
+    if not arn or not arn.startswith("arn:"):
+        return None
+    parts = arn.split(":")
+    return parts[4] or None if len(parts) > 4 else None
+
+
+def _principal_match_kind(stmt: dict, principal: str | None, account: str | None) -> str | None:
+    """How a resource-policy statement's Principal relates to our principal.
+
+    Returns:
+      "explicit"  — names this principal (or `*`). An Allow here is sufficient on its own.
+      "delegated" — names the account root, i.e. "anyone in this account, *if* their own
+                    identity policy also allows it". An Allow here grants nothing extra,
+                    so it is recorded but never treated as an independent Allow.
+      None        — does not apply to us.
+    """
+    # TODO v2: NotPrincipal (rare, and easy to get backwards — better absent than wrong).
+    if "NotPrincipal" in stmt:
+        return None
+    pr = stmt.get("Principal")
+    if pr == "*":
+        return "explicit"
+    if not isinstance(pr, dict):
+        return None
+    roots = {account, f"arn:aws:iam::{account}:root"} if account else set()
+    for value in _as_list(pr.get("AWS")):
+        if value == "*":
+            return "explicit"
+        if principal and value == principal:
+            return "explicit"
+        if value in roots:
+            return "delegated"
+    return None
 
 
 def _statements(policies: list[dict]):
@@ -93,16 +131,46 @@ def _statements(policies: list[dict]):
 
 # ---- the evaluator -------------------------------------------------------------------
 
-def is_allowed(policies: list[dict], action: str, resource: str) -> EvalResult:
-    """Evaluate whether `action` on `resource` is allowed by the given policy documents."""
-    stmts = list(_statements(policies))
+def is_allowed(policies: list[dict], action: str, resource: str,
+               resource_policy: dict | None = None,
+               principal: str | None = None) -> EvalResult:
+    """Evaluate whether `action` on `resource` is allowed.
 
-    matching = [
-        st for st in stmts
-        if _action_matches(st, action) and _resource_matches(st, resource)
-    ]
-    denies = [st for st in matching if st.get("Effect") == "Deny"]
-    allows = [st for st in matching if st.get("Effect") == "Allow"]
+    `policies` are the identity policy documents in force for the caller. Pass
+    `resource_policy` (a bucket policy, key policy, secret policy, …) and `principal`
+    (the caller's ARN) to include the resource-based side of the decision.
+
+    Same-account semantics: an Allow in *either* the identity policy or the resource
+    policy is sufficient, and an explicit Deny in either wins. That is what AWS does
+    within one account, which is the model Cleave uses (handbook: single account, two
+    roles).
+    TODO v2: cross-account needs an Allow on BOTH sides, and KMS is stricter still —
+    the key policy is authoritative unless it delegates to IAM. Both currently
+    over-allow, which is the v1 posture (over-report, never silently hide).
+    """
+    identity = [st for st in _statements(policies)
+                if _action_matches(st, action) and _resource_matches(st, resource)]
+
+    # The resource-based side also has to name us.
+    account = _account_of(principal) or _account_of(resource)
+    res_matched: list[tuple[dict, str]] = []
+    if resource_policy:
+        for st in _statements([resource_policy]):
+            if not (_action_matches(st, action)
+                    and _resource_matches(st, resource, resource_policy=True)):
+                continue
+            kind = _principal_match_kind(st, principal, account)
+            if kind:
+                res_matched.append((st, kind))
+
+    denies = ([st for st in identity if st.get("Effect") == "Deny"]
+              + [st for st, _k in res_matched if st.get("Effect") == "Deny"])
+    identity_allows = [st for st in identity if st.get("Effect") == "Allow"]
+    # A "delegated" resource Allow (Principal = account root) grants nothing the identity
+    # policy does not already grant, so it is never an independent Allow.
+    resource_allows = [st for st, k in res_matched
+                       if st.get("Effect") == "Allow" and k == "explicit"]
+    allows = identity_allows + resource_allows
 
     # 1) explicit Deny.  Unconditional deny -> hard block (Certain).
     hard_denies = [st for st in denies if "Condition" not in st]
@@ -116,12 +184,14 @@ def is_allowed(policies: list[dict], action: str, resource: str) -> EvalResult:
         # could hide a real path — we over-report instead, per v1 policy.)
         cond_denies = [st for st in denies if "Condition" in st]
         plain_allows = [st for st in allows if "Condition" not in st]
+        via = ("the resource policy" if resource_allows and not identity_allows
+               else "an identity policy")
         if plain_allows and not cond_denies:
             return EvalResult(Decision.ALLOW, Confidence.CERTAIN,
-                              "Allow matched (no blocking condition)", plain_allows)
-        why = "Allow matched but gated by an unevaluated Condition"
+                              f"Allow matched in {via} (no blocking condition)", plain_allows)
+        why = f"Allow matched in {via} but gated by an unevaluated Condition"
         if cond_denies:
-            why = "Allow matched but a conditional Deny might apply"
+            why = f"Allow matched in {via} but a conditional Deny might apply"
         return EvalResult(Decision.ALLOW, Confidence.POSSIBLE, why, allows + cond_denies)
 
     # 3) no matching Allow -> implicit deny
