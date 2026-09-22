@@ -1,0 +1,5 @@
+{ "name": "NotAction iam:* allows a non-iam action",
+  "policies": [ { "Version": "2012-10-17", "Statement": [
+    { "Effect": "Allow", "NotAction": "iam:*", "Resource": "*" } ] } ],
+  "query": { "action": "s3:GetObject", "resource": "arn:aws:s3:::x/y" },
+  "expect": { "decision": "ALLOW", "confidence": "CERTAIN" } }

@@ -27,11 +27,22 @@ def run() -> dict[str, int]:
     outdir.mkdir(parents=True, exist_ok=True)
 
     summary: dict[str, int] = {}
+    collected: dict[str, list] = {}
     for name, fn in base.COLLECTORS.items():
         records = base.safe(name, lambda fn=fn: fn(ctx))
+        collected[name] = records
         (outdir / f"{name}.json").write_text(json.dumps(records, indent=2, default=str))
         summary[name] = len(records)
         log.info("  %-12s %d records", name, len(records))
+
+    # credential-in-content scan (only touches S3 objects if any buckets exist)
+    from . import credscan
+    owners = credscan.access_key_owners(collected.get("iam", []))
+    findings = base.safe("credscan",
+                         lambda: credscan.scan_buckets(session, collected.get("s3", []), owners))
+    (outdir / "_credentials.json").write_text(json.dumps(findings, indent=2, default=str))
+    summary["credscan_findings"] = len(findings)
+    log.info("  %-12s %d findings", "credscan", len(findings))
 
     (outdir / "_summary.json").write_text(json.dumps(summary, indent=2))
     log.info("wrote %d collectors -> %s", len(summary), outdir)

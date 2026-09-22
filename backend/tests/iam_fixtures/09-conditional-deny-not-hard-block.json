@@ -1,0 +1,7 @@
+{ "name": "scenario2 v2 style: Allow *:* + conditional Deny -> ALLOW POSSIBLE (deny might not apply)",
+  "policies": [ { "Version": "2012-10-17", "Statement": [
+    { "Effect": "Allow", "Action": "*", "Resource": "*" },
+    { "Effect": "Deny", "Action": "*", "Resource": "*",
+      "Condition": { "NotIpAddress": { "aws:SourceIp": ["192.0.2.0/24"] } } } ] } ],
+  "query": { "action": "iam:ListUsers", "resource": "*" },
+  "expect": { "decision": "ALLOW", "confidence": "POSSIBLE" } }

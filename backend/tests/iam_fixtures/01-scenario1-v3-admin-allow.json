@@ -1,0 +1,5 @@
+{ "name": "scenario1 v3 (Allow *:*) permits iam:ListUsers",
+  "policies": [ { "Version": "2012-10-17", "Statement": [
+    { "Effect": "Allow", "Action": "*", "Resource": "*" } ] } ],
+  "query": { "action": "iam:ListUsers", "resource": "*" },
+  "expect": { "decision": "ALLOW", "confidence": "CERTAIN" } }

@@ -1,0 +1,6 @@
+{ "name": "explicit Deny overrides Allow *:*",
+  "policies": [ { "Version": "2012-10-17", "Statement": [
+    { "Effect": "Allow", "Action": "*", "Resource": "*" },
+    { "Effect": "Deny", "Action": "s3:*", "Resource": "arn:aws:s3:::secret/*" } ] } ],
+  "query": { "action": "s3:GetObject", "resource": "arn:aws:s3:::secret/creds.txt" },
+  "expect": { "decision": "DENY", "confidence": "CERTAIN" } }

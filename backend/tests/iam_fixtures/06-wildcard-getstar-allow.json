@@ -1,0 +1,5 @@
+{ "name": "wildcard action s3:Get* covers s3:GetObject",
+  "policies": [ { "Version": "2012-10-17", "Statement": [
+    { "Effect": "Allow", "Action": "s3:Get*", "Resource": "*" } ] } ],
+  "query": { "action": "s3:GetObject", "resource": "arn:aws:s3:::x/y" },
+  "expect": { "decision": "ALLOW", "confidence": "CERTAIN" } }

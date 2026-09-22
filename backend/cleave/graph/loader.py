@@ -23,12 +23,15 @@ NODE_LABELS = {
     "Internet", "IamUser", "IamRole", "IamGroup", "IamPolicy", "IamInstanceProfile",
     "S3Bucket", "Ec2Instance", "SecurityGroup", "Subnet", "Vpc", "RouteTable",
     "NetworkAcl", "InternetGateway", "LambdaFunction", "RdsInstance",
-    "SecretsManagerSecret", "SsmParameter", "KmsKey", "Principal",
+    "SecretsManagerSecret", "SsmParameter", "KmsKey", "Principal", "Admin",
 }
 EDGE_TYPES = {
+    # structural (Phase 2)
     "HAS_ATTACHED", "IN_GROUP", "HAS_INSTANCE_PROFILE", "CONTAINS_ROLE",
     "EXECUTES_AS", "CAN_ASSUME", "IN_SUBNET", "IN_VPC", "PROTECTED_BY",
     "ROUTES_VIA", "HAS_INTERNET_ROUTE",
+    # evaluated (Phase 3)
+    "GRANTS_ADMIN", "CAN_PASS_ROLE", "CAN_LAUNCH_AS", "CAN_REACH", "CONTAINS_CREDENTIAL",
 }
 
 
@@ -97,17 +100,23 @@ class GraphLoader:
             for label in NODE_LABELS:
                 s.run(f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{label}) REQUIRE n.uid IS UNIQUE")
 
-            # synthetic Internet node
+            # synthetic sink/source nodes
             s.execute_write(self._merge_node, "Internet", "internet",
                             {"label": "Internet", "_raw": "{}"})
+            s.execute_write(self._merge_node, "Admin", "admin",
+                            {"label": "Admin", "_raw": "{}"})
 
             # 1) nodes
             for r in records:
                 if r["_type"] in NODE_LABELS:
                     s.execute_write(self._merge_node, r["_type"], r["_id"], _node_props(r))
 
-            # 2) structural edges
+            # 2) edges — structural (Phase 2) + evaluated (Phase 3)
+            from .evaluated import compute_evaluated_edges
+            cred_path = raw / "_credentials.json"
+            cred_findings = json.loads(cred_path.read_text()) if cred_path.exists() else []
             edges = list(self._derive_edges(records, by_id, groups_by_name))
+            edges += compute_evaluated_edges(records, cred_findings)
             # ensure stub target nodes (AWS-managed policies, external/inline principals) exist
             for stub in self._stub_nodes(edges, by_id):
                 s.execute_write(self._merge_node, stub["label"], stub["uid"], stub["props"])
@@ -188,7 +197,7 @@ class GraphLoader:
         """Create minimal nodes for edge targets we didn't collect (AWS-managed policies,
         inline-policy nodes, external/service principals) so edges have something to land on."""
         seen = set()
-        known = set(by_id) | {"internet"}
+        known = set(by_id) | {"internet", "admin"}
         for e in (edges or []):
             for uid in (e["frm"], e["to"]):
                 if uid in known or uid in seen:

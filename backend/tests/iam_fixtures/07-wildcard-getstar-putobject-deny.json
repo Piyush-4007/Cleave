@@ -1,0 +1,5 @@
+{ "name": "s3:Get* does NOT cover s3:PutObject",
+  "policies": [ { "Version": "2012-10-17", "Statement": [
+    { "Effect": "Allow", "Action": "s3:Get*", "Resource": "*" } ] } ],
+  "query": { "action": "s3:PutObject", "resource": "arn:aws:s3:::x/y" },
+  "expect": { "decision": "DENY", "confidence": "CERTAIN" } }
