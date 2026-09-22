@@ -12,11 +12,6 @@ from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
 from ..reachability.engine import compute_reach
 from ..credscan import credential_edges
 
-# AWS-managed policies whose documents we don't collect but whose meaning is well-known.
-KNOWN_ADMIN_MANAGED = {"AdministratorAccess"}
-FULL_ADMIN_DOC = {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
-# TODO v2: fetch attached AWS-managed policy docs in the collector instead of name-matching.
-
 
 def _edge(frm, to, rel, reason, evidence, confidence, by="iam.evaluator.v1", **extra):
     return {"frm": frm, "to": to, "rel": rel, "props": {
@@ -58,17 +53,6 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
         if res.decision is Decision.ALLOW:
             edges.append(_edge(uid, "admin", "GRANTS_ADMIN", res.reason, evidence,
                                res.bucket, full_admin=is_full_admin(doc)))
-    seen_admin = set()
-    for ident in records:
-        if ident["_type"] not in ("IamUser", "IamRole", "IamGroup"):
-            continue
-        for arn in ident.get("AttachedPolicies", []):
-            name = arn.split("/")[-1]
-            if name in KNOWN_ADMIN_MANAGED and arn not in seen_admin:
-                seen_admin.add(arn)
-                edges.append(_edge(arn, "admin", "GRANTS_ADMIN",
-                                   f"AWS-managed {name} is admin-equivalent", arn, "Certain",
-                                   full_admin=True))
 
     # ---- effective policy documents in force for a principal ----
     def eff_docs(pr: dict) -> list[dict]:
@@ -80,8 +64,6 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
             for arn in h.get("AttachedPolicies", []):
                 if policy_docs.get(arn):
                     docs.append(policy_docs[arn])
-                elif arn.split("/")[-1] in KNOWN_ADMIN_MANAGED:
-                    docs.append(FULL_ADMIN_DOC)
         return docs
 
     # ---- CAN_PASS_ROLE / CAN_LAUNCH_AS (principal -> role) ----

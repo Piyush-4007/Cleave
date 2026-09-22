@@ -1,0 +1,21 @@
+{
+  "name": "IAMFullAccess (iam:* on *) is admin-equivalent but not literal *:*",
+  "note": "The false negative the Phase 1 collector amendment fixes: without the AWS-managed policy document, nothing knew what IAMFullAccess granted.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  },
+  "expect_full_admin": false
+}

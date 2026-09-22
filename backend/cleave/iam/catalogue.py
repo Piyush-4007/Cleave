@@ -1,14 +1,27 @@
-"""Admin-equivalent IAM permissions â€” permissions that are not *:* themselves but
+"""Admin-equivalent IAM permissions — permissions that are not *:* themselves but
 *reach* admin. Sourced from docs/aws-common-risks-reference.md. Used by grants_admin()
-and (Phase 4) by sink detection. Patterns are matched case-insensitively with * wildcards.
+and by Phase 4 sink detection. Patterns are matched case-insensitively with * wildcards.
+
+The catalogue is split in two, and the split is load-bearing.
+
+`ADMIN_EQUIVALENT_ACTIONS` are **sufficient on their own**: holding one, on an ordinary
+account, is a complete privilege escalation with no second permission required. These are
+what `grants_admin()` fires on, and therefore what puts a `GRANTS_ADMIN` edge in the graph.
+
+`ENABLING_PRIMITIVES` are **only dangerous in combination**. iam:PassRole permits handing
+a role to a service; on its own it obtains nothing, because you still need a compute action
+to land the role somewhere. Treating these as admin-equivalent produced a path marked
+*Certain* from a principal who could not actually take it — the exact "plausible-but-fake
+path" the handbook names as Phase 3's trap. The combination is already modelled properly,
+as the `CAN_LAUNCH_AS` edge (PassRole + RunInstances/CreateFunction), so nothing is lost by
+keeping them out of `grants_admin`: they are evidence, not a conclusion.
 """
 
-# Concrete admin-equivalent actions. A granted action pattern (e.g. "*", "iam:*",
-# "iam:Create*") is admin-equivalent if it *covers* one of these. Keep these CONCRETE
-# (no "*"/"iam:*" here) â€” the "does the grant cover a dangerous action" test lives in
-# grants_admin(), and putting wildcards here would make every action match.
+# Sufficient alone. Keep these CONCRETE (no "*"/"iam:*" here) — the "does the grant cover a
+# dangerous action" test lives in grants_admin(), and putting wildcards here would make
+# every action match.
 ADMIN_EQUIVALENT_ACTIONS = {
-    # policy mutation
+    # policy mutation — write yourself a new permission set
     "iam:CreatePolicyVersion",
     "iam:SetDefaultPolicyVersion",       # Phase 0 scenario 1
     "iam:AttachUserPolicy",
@@ -17,27 +30,33 @@ ADMIN_EQUIVALENT_ACTIONS = {
     "iam:PutUserPolicy",
     "iam:PutRolePolicy",
     "iam:PutGroupPolicy",
-    # credential / identity creation
+    # credential / identity takeover — become someone who already has more
     "iam:CreateAccessKey",
     "iam:CreateLoginProfile",
     "iam:UpdateLoginProfile",
-    "iam:CreateUser",
     "iam:AddUserToGroup",
-    # trust / assume manipulation
+    # trust manipulation — make a privileged role trust you
     "iam:UpdateAssumeRolePolicy",
-    "iam:PassRole",                       # enabling primitive (Phase 0 scenario 2)
-    "sts:AssumeRole",
-    # instance-profile manipulation (Phase 0 scenario 2 — walkthrough 2 step 3).
-    # Individually mundane; combined with PassRole + a compute action they are the
-    # attachment escalation. Listed for the same reason PassRole is: enabling primitive.
-    "iam:AddRoleToInstanceProfile",
+    # run your code as an existing function's role
+    "lambda:UpdateFunctionCode",
+}
+
+# Dangerous only in combination. Excluded from grants_admin() on purpose.
+# TODO v2 (Phase 7): model the remaining combinations as explicit edges the way
+# CAN_LAUNCH_AS models PassRole + compute — cloudformation:CreateStack + PassRole and
+# glue:CreateDevEndpoint + PassRole are the same shape and currently go unreported.
+ENABLING_PRIMITIVES = {
+    "iam:PassRole",                       # Phase 0 scenario 2 — needs a compute action
+    "iam:CreateUser",                     # a user with no permissions is not escalation
+    "iam:AddRoleToInstanceProfile",       # walkthrough 2 step 3 — needs RunInstances
     "iam:RemoveRoleFromInstanceProfile",
     "ec2:AssociateIamInstanceProfile",
     "ec2:ReplaceIamInstanceProfileAssociation",
-    # compute-based (PassRole + these = launch-as)
-    "ec2:RunInstances",
-    "lambda:CreateFunction",
-    "lambda:UpdateFunctionCode",
-    "glue:CreateDevEndpoint",
-    "cloudformation:CreateStack",
+    "ec2:RunInstances",                   # needs PassRole to carry a role
+    "lambda:CreateFunction",              # needs PassRole
+    "glue:CreateDevEndpoint",             # needs PassRole
+    "cloudformation:CreateStack",         # needs PassRole
+    "sts:AssumeRole",                     # the role's trust policy decides; see CAN_ASSUME
 }
+
+assert not (ADMIN_EQUIVALENT_ACTIONS & ENABLING_PRIMITIVES), "an action is one or the other"

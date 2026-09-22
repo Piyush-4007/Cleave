@@ -84,6 +84,32 @@ def collect(ctx) -> list[dict]:
             "AttachmentCount": p.get("AttachmentCount"), "Document": doc,
         })
 
+    # --- Attached AWS-managed policies (documents, not just names) ---
+    # Most principals on a real account carry AWS-managed policies (IAMFullAccess,
+    # PowerUserAccess, ...). Without their documents the evaluator is blind to them:
+    # grants_admin misses them, is_allowed misses PassRole/compute granted through them,
+    # and a literal *:* goes unseen. list_policies(Scope="Local") never returns them, so
+    # fetch exactly the ones something is actually attached to -- not all of AWS's
+    # hundreds. GetPolicy/GetPolicyVersion are free and allowed by SecurityAudit.
+    collected = {r["_id"] for r in out if r["_type"] == "IamPolicy"}
+    referenced = {arn for r in out if r["_type"] in ("IamUser", "IamRole", "IamGroup")
+                  for arn in r.get("AttachedPolicies", [])}
+    for arn in sorted(referenced - collected):
+        try:
+            meta = iam.get_policy(PolicyArn=arn)["Policy"]
+            doc = as_doc(iam.get_policy_version(
+                PolicyArn=arn, VersionId=meta["DefaultVersionId"]
+            )["PolicyVersion"]["Document"])
+        except Exception:  # noqa: BLE001 - one unreadable policy must not sink the scan
+            continue
+        out.append({
+            "_type": "IamPolicy", "_id": arn, "PolicyName": meta.get("PolicyName"),
+            "Arn": arn, "DefaultVersionId": meta.get("DefaultVersionId"),
+            "AttachmentCount": meta.get("AttachmentCount"),
+            "ManagedBy": "AWS" if arn.startswith("arn:aws:iam::aws:policy/") else "Customer",
+            "Document": doc,
+        })
+
     # --- Instance profiles (instance -> role bridge; abused in Phase 0 scenario 2) ---
     for ip in paginate(iam, "list_instance_profiles", "InstanceProfiles"):
         out.append({

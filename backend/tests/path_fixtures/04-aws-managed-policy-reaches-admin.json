@@ -1,0 +1,61 @@
+{
+  "name": "An attached AWS-managed policy (IAMFullAccess) resolves to admin",
+  "ground_truth": "synthetic — the false negative the Phase 1 collector amendment fixes",
+  "story": "Before the collector fetched AWS-managed policy documents, this account looked spotless: IAMFullAccess is not named AdministratorAccess, so nothing knew what it granted. iam:* covers iam:AttachUserPolicy, so ops-engineer can attach AdministratorAccess to himself. The read-only user next to him is the control — same shape, no path.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/ops-engineer",
+      "UserName": "ops-engineer",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/IAMFullAccess"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/IAMFullAccess",
+      "PolicyName": "IAMFullAccess",
+      "Arn": "arn:aws:iam::aws:policy/IAMFullAccess",
+      "DefaultVersionId": "v2",
+      "ManagedBy": "AWS",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "iam:*", "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/analyst",
+      "UserName": "analyst",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess",
+      "PolicyName": "AmazonS3ReadOnlyAccess",
+      "Arn": "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess",
+      "DefaultVersionId": "v3",
+      "ManagedBy": "AWS",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:Get*", "s3:List*"], "Resource": "*"}
+      ]}
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/ops-engineer",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/ops-engineer",
+          "arn:aws:iam::aws:policy/IAMFullAccess",
+          "admin"
+        ],
+        "edges": ["HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain"
+      }
+    ],
+    "no_paths_from": ["arn:aws:iam::111122223333:user/analyst"],
+    "total_paths": 1
+  }
+}

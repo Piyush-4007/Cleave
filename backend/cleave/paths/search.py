@@ -31,10 +31,6 @@ TRAVERSABLE = {
     "CONTAINS_ROLE":        "the instance profile hands this role to whatever runs with it",
     "EXECUTES_AS":          "invoke or compromise the function and you act as its role",
     "CAN_ASSUME":           "sts:AssumeRole into the role",
-    # NOTE: PassRole alone does not yield the role — it needs a compute action to land on
-    # something. CAN_LAUNCH_AS is that completed form and outranks it when both exist.
-    # Kept traversable so a PassRole-only route is reported rather than silently dropped.
-    "CAN_PASS_ROLE":        "hand the role to a service you launch",
     "CAN_LAUNCH_AS":        "boot a resource carrying the role, then read its credentials",
     "GRANTS_ADMIN":         "this policy is administrator-equivalent",
     "CAN_REACH":            "a network packet can arrive from the internet",
@@ -44,6 +40,13 @@ TRAVERSABLE = {
 # Context, never a step. These exist so CAN_REACH can be *computed*; walking them would
 # produce paths like "instance -> subnet -> vpc" that no attacker can traverse.
 CONTEXT_ONLY = {
+    # PassRole alone does NOT hand you the role -- it only permits handing it to a service,
+    # which needs a compute action (RunInstances / CreateFunction) to land anywhere. Walking
+    # it would emit a route nobody can actually take, and a reviewer who clicks such a path
+    # and finds it unexploitable has falsified the claim that every edge is a real attacker
+    # move. The exploitable form is CAN_LAUNCH_AS, which is PassRole *plus* that compute
+    # action; the edge stays in the graph as evidence of the primitive.
+    "CAN_PASS_ROLE":      "a permission, not a completed step -- CAN_LAUNCH_AS is the walkable form",
     "IN_SUBNET":          "locates a resource for the reachability chain",
     "IN_VPC":             "topology only",
     "PROTECTED_BY":       "the firewall is an input to CAN_REACH, not a step",
@@ -55,7 +58,7 @@ CONTEXT_ONLY = {
 REL_RANK = {rel: i for i, rel in enumerate([
     "CAN_LAUNCH_AS", "CAN_ASSUME", "CONTAINS_CREDENTIAL", "CAN_REACH",
     "HAS_INSTANCE_PROFILE", "CONTAINS_ROLE", "EXECUTES_AS",
-    "GRANTS_ADMIN", "HAS_ATTACHED", "IN_GROUP", "CAN_PASS_ROLE",
+    "GRANTS_ADMIN", "HAS_ATTACHED", "IN_GROUP",
 ])}
 
 

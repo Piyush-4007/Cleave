@@ -13,7 +13,7 @@ import pytest
 
 from cleave.graph.loader import EDGE_TYPES
 from cleave.paths.endpoints import bucket_public_reason, find_sinks, find_sources, holds_full_admin
-from cleave.paths.graphview import graph_from_records
+from cleave.paths.graphview import graph_from_records, rels_between
 from cleave.paths.model import ASSUMED_COMPROMISE, EXTERNAL
 from cleave.paths.search import CONTEXT_ONLY, TRAVERSABLE, find_paths, traversable_subgraph
 
@@ -29,6 +29,14 @@ def _load(path):
 
 def _signature(p):
     return (p.source.uid, p.sink.uid, tuple(p.nodes), tuple(h.rel for h in p.hops))
+
+
+# What the collector now produces for an attached AWS-managed policy: the real document.
+ADMIN_POLICY = {
+    "_type": "IamPolicy", "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+    "PolicyName": "AdministratorAccess", "ManagedBy": "AWS",
+    "Document": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]},
+}
 
 
 # ---- the allowlist contract ----------------------------------------------------------
@@ -54,7 +62,8 @@ def test_structural_connective_edges_are_traversable():
 
 def test_topology_edges_are_not_traversable():
     """These exist so CAN_REACH can be computed; walking them invents fake paths."""
-    for rel in ("IN_SUBNET", "IN_VPC", "PROTECTED_BY", "ROUTES_VIA", "HAS_INTERNET_ROUTE"):
+    for rel in ("IN_SUBNET", "IN_VPC", "PROTECTED_BY", "ROUTES_VIA", "HAS_INTERNET_ROUTE",
+                "CAN_PASS_ROLE"):
         assert rel in CONTEXT_ONLY and rel not in TRAVERSABLE
 
 
@@ -123,6 +132,7 @@ def test_admin_holder_is_not_a_source():
         {"_type": "IamUser", "_id": "arn:aws:iam::1:user/cleave-dev", "UserName": "cleave-dev",
          "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
          "Groups": [], "InlinePolicies": {}},
+        ADMIN_POLICY,
     ]
     g = graph_from_records(records)
     assert holds_full_admin(g, "arn:aws:iam::1:user/cleave-dev")
@@ -153,6 +163,7 @@ def test_group_inherited_admin_is_excluded():
         {"_type": "IamGroup", "_id": "arn:aws:iam::1:group/admins", "GroupName": "admins",
          "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
          "InlinePolicies": {}},
+        ADMIN_POLICY,
     ]
     g = graph_from_records(records)
     assert holds_full_admin(g, "arn:aws:iam::1:user/u")
@@ -182,13 +193,35 @@ def test_hop_limit_is_respected():
     assert all(p.length <= 2 for p in find_paths(g, max_hops=2))
 
 
-def test_parallel_edges_report_the_more_damning_one():
-    """kerrigan has both CAN_PASS_ROLE and CAN_LAUNCH_AS to the mighty role. PassRole
-    alone does not hand you the role, so the completed form is what we show."""
-    _fx, _g, found = _load(FIX_DIR / "02-iam_privesc_by_attachment.json")
-    hop = next(h for p in found for h in p.hops if h.to.endswith("cg-ec2-mighty-role"))
+def test_passrole_is_evidence_but_not_a_step():
+    """kerrigan has both CAN_PASS_ROLE and CAN_LAUNCH_AS to the mighty role. The edge stays
+    in the graph as evidence of the primitive, but only the completed form is walkable."""
+    _fx, g, found = _load(FIX_DIR / "02-iam_privesc_by_attachment.json")
+    kerrigan = "arn:aws:iam::111122223333:user/kerrigan"
+    mighty = "arn:aws:iam::111122223333:role/cg-ec2-mighty-role"
+    assert rels_between(g, kerrigan, mighty) == {"CAN_PASS_ROLE", "CAN_LAUNCH_AS"}
+    assert rels_between(traversable_subgraph(g), kerrigan, mighty) == {"CAN_LAUNCH_AS"}
+    hop = next(h for p in found for h in p.hops if h.to == mighty)
     assert hop.rel == "CAN_LAUNCH_AS"
-    assert "CAN_PASS_ROLE" in hop.alternatives
+
+
+def test_passrole_without_a_compute_action_reaches_nothing():
+    """The false positive this guards: passing a role obtains nothing on its own. It must
+    not reappear via GRANTS_ADMIN either -- iam:PassRole is an enabling primitive, so it is
+    not admin-equivalent by itself."""
+    records = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::1:user/passrole-only",
+         "UserName": "passrole-only", "AttachedPolicies": [], "Groups": [],
+         "InlinePolicies": {"p": {"Statement": [
+             {"Effect": "Allow", "Action": "iam:PassRole", "Resource": "*"}]}}},
+        {"_type": "IamRole", "_id": "arn:aws:iam::1:role/mighty", "RoleName": "mighty",
+         "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+         "InlinePolicies": {}, "TrustPolicy": {}},
+        ADMIN_POLICY,
+    ]
+    g = graph_from_records(records)
+    assert rels_between(g, "arn:aws:iam::1:user/passrole-only", "arn:aws:iam::1:role/mighty")         == {"CAN_PASS_ROLE"}
+    assert find_paths(g) == []
 
 
 def test_sink_is_admin_only_in_v1():

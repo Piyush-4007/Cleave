@@ -1,0 +1,20 @@
+{
+  "name": "A sufficient-alone action scoped to one resource is admin-equivalent but weaker -> POSSIBLE",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:AttachUserPolicy",
+          "Resource": "arn:aws:iam::1:user/self"
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  },
+  "expect_full_admin": false
+}

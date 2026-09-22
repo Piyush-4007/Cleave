@@ -117,19 +117,31 @@ Defining an edge is not the same as saying an attacker can traverse it. Path sea
 explicit allowlist (`paths/search.py`), and a test asserts every edge type in the loader is
 classified as exactly one of:
 
-- **Traversable** — using the edge *is* an attacker action: `HAS_ATTACHED`, `IN_GROUP`,
-  `HAS_INSTANCE_PROFILE`, `CONTAINS_ROLE`, `EXECUTES_AS`, `CAN_ASSUME`, `CAN_PASS_ROLE`,
+- **Traversable** — using the edge *is* a completed attacker action: `HAS_ATTACHED`,
+  `IN_GROUP`, `HAS_INSTANCE_PROFILE`, `CONTAINS_ROLE`, `EXECUTES_AS`, `CAN_ASSUME`,
   `CAN_LAUNCH_AS`, `GRANTS_ADMIN`, `CAN_REACH`, `CONTAINS_CREDENTIAL`.
   The structural ones belong here: a principal reaches its powers *through* them, and
   dropping them disconnects every IAM path in the graph.
-- **Context only** — `IN_SUBNET`, `IN_VPC`, `PROTECTED_BY`, `ROUTES_VIA`,
-  `HAS_INTERNET_ROUTE`. These exist so `CAN_REACH` can be *computed*; walking them would
-  emit paths like "instance → subnet → vpc" that no attacker can traverse. They stay in
-  the graph for Phase 6 to draw as context.
+- **Context only** — `CAN_PASS_ROLE`, `IN_SUBNET`, `IN_VPC`, `PROTECTED_BY`, `ROUTES_VIA`,
+  `HAS_INTERNET_ROUTE`. The topology edges exist so `CAN_REACH` can be *computed*; walking
+  them would emit paths like "instance → subnet → vpc" that no attacker can traverse.
+  They stay in the graph for Phase 6 to draw as context.
 
-Where two nodes are joined by several relationship types (kerrigan has both
-`CAN_PASS_ROLE` and `CAN_LAUNCH_AS` to the same role) the path reports the most damning
-one and lists the rest under `alternatives`.
+**Why `CAN_PASS_ROLE` is not walkable.** Passing a role obtains nothing on its own — it
+permits handing the role to a service, which still needs a compute action to land it
+anywhere. The exploitable form is `CAN_LAUNCH_AS` (PassRole **plus** `ec2:RunInstances` /
+`lambda:CreateFunction`). Emitting a `CAN_PASS_ROLE`-only route would hand a reviewer a
+path they could click, try, and fail to walk — falsifying the claim that every edge is a
+real attacker move. Ranking it low is not a fix: a buried false positive is still a false
+positive. The edge remains in the graph as evidence of the primitive.
+
+The same reasoning splits the admin-equivalent catalogue (`iam/catalogue.py`) into actions
+that are **sufficient alone** (which is all `grants_admin` fires on) and **enabling
+primitives** that are only dangerous in combination — otherwise the identical fake path
+reappears as `principal → policy → Admin`, marked *Certain*.
+
+Where two nodes are joined by several relationship types, the path reports the most damning
+walkable one and lists the rest under `alternatives`.
 
 ## How the two Phase 0 attacks appear in the graph (ground truth)
 
