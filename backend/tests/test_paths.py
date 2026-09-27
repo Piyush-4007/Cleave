@@ -105,6 +105,8 @@ def test_fixture_finds_expected_paths(path):
             + "\n          ".join(map(str, sorted(found_sigs))))
         match = next(p for p in found if _signature(p) == want)
         assert match.source.kind == exp["source_kind"]
+        if "sink_kind" in exp:
+            assert match.sink.kind == exp["sink_kind"]
         if "confidence" in exp:
             assert match.confidence == exp["confidence"]
 

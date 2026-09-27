@@ -1,0 +1,33 @@
+{
+  "name": "A principal reaching a production-tagged bucket is a path to a sensitive sink",
+  "ground_truth": "synthetic — Phase 5 sinks beyond Admin",
+  "story": "analyst can read one bucket. That bucket is tagged Environment=production, so it is a SENSITIVE_DATA sink — reaching it IS the finding, no admin required. The scratch bucket next to it is untagged and is not a sink, so reading it is not a path.",
+  "records": [
+    {"_type": "IamUser", "_id": "arn:aws:iam::111122223333:user/analyst",
+     "UserName": "analyst", "Groups": [], "InlinePolicies": {}, "AccessKeys": [],
+     "AttachedPolicies": ["arn:aws:iam::111122223333:policy/read-prod"]},
+    {"_type": "IamPolicy", "_id": "arn:aws:iam::111122223333:policy/read-prod",
+     "PolicyName": "read-prod", "Document": {"Statement": [
+       {"Effect": "Allow", "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::prod-customer-data/*"}]}},
+    {"_type": "S3Bucket", "_id": "arn:aws:s3:::prod-customer-data", "Name": "prod-customer-data",
+     "PublicAccessBlock": {"BlockPublicAcls": true, "IgnorePublicAcls": true,
+                           "BlockPublicPolicy": true, "RestrictPublicBuckets": true},
+     "Policy": null, "Acl": [], "Tags": {"Environment": "production", "team": "billing"}},
+    {"_type": "S3Bucket", "_id": "arn:aws:s3:::scratch", "Name": "scratch",
+     "PublicAccessBlock": null, "Policy": null, "Acl": [], "Tags": {"Environment": "dev"}}
+  ],
+  "expect": {
+    "paths": [
+      {"source": "arn:aws:iam::111122223333:user/analyst",
+       "source_kind": "ASSUMED_COMPROMISE",
+       "sink": "arn:aws:s3:::prod-customer-data",
+       "sink_kind": "SENSITIVE_DATA",
+       "nodes": ["arn:aws:iam::111122223333:user/analyst", "arn:aws:s3:::prod-customer-data"],
+       "edges": ["CAN_READ"],
+       "confidence": "Certain"}
+    ],
+    "no_paths_from": ["arn:aws:s3:::scratch"],
+    "total_paths": 1
+  }
+}

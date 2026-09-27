@@ -1,6 +1,5 @@
 {
-  "_comment": "Tunable weights and remediation costs for path ranking and the minimum cut (Phase 5). Editable by hand — the whole point is that a reviewer can recompute any score with a calculator. Scores normalise to 0-10.",
-
+  "_comment": "Tunable weights and remediation costs for path ranking and the minimum cut (Phase 5). Editable by hand \u00e2\u20ac\u201d the whole point is that a reviewer can recompute any score with a calculator. Scores normalise to 0-10.",
   "score_weights": {
     "_comment": "Handbook factors. A path's raw score is the sum of the factors that apply; then normalised to 10 by dividing by the max achievable and x10.",
     "unauthenticated_source": 3.0,
@@ -11,12 +10,29 @@
     "documented_technique": 1.0,
     "cross_account": 0.5
   },
-
   "short_path": {
     "_comment": "short_path_bonus is scaled: a 2-hop path gets the full bonus, longer paths less, down to 0 at max_hops. bonus * (max_hops - hops) / (max_hops - 2).",
     "min_hops_for_full_bonus": 2
   },
-
+  "sensitive_data": {
+    "_comment": "What marks a data store (S3 bucket, RDS instance) as a SENSITIVE_DATA sink \u2014 reaching CAN_READ/CAN_WRITE to it is a path. Reading a tag/ARN is config, not judgment. tag_match: any tag whose key (case-insensitive) is in tag_keys and whose value (lowercased) is in tag_values. arns: explicit resource ARNs always treated as sensitive.",
+    "tag_keys": [
+      "environment",
+      "env",
+      "dataclassification",
+      "data-classification",
+      "sensitivity"
+    ],
+    "tag_values": [
+      "production",
+      "prod",
+      "sensitive",
+      "confidential",
+      "restricted",
+      "pii"
+    ],
+    "arns": []
+  },
   "remediation_costs": {
     "_comment": "Cost to cut each edge type = disruption of the fix, 1 (trivial) to 10 (removes real access). null = uncuttable (never proposed as a cut). Used as edge capacity in the minimum cut and as the denominator in best-single-fix ranking.",
     "CAN_REACH": 1,
@@ -32,7 +48,6 @@
     "HAS_ATTACHED": 7,
     "IN_GROUP": 6
   },
-
   "remediation_fixes": {
     "_comment": "Plain-English fix per edge type, shown next to the cut. Phase 8 turns the chosen cut into an actual Terraform patch.",
     "CAN_REACH": "restrict the security group / remove the public IP so the internet cannot reach it",

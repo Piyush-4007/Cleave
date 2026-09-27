@@ -17,6 +17,7 @@ escalate. Excluding him would delete the very finding we exist to produce.
 from __future__ import annotations
 import networkx as nx
 from .model import Source, Sink, EXTERNAL, ASSUMED_COMPROMISE
+from .ranking import sensitive_reason
 
 PRINCIPAL_LABELS = ("IamUser", "IamRole")
 SERVICE_LINKED = "/aws-service-role/"
@@ -24,17 +25,31 @@ SERVICE_LINKED = "/aws-service-role/"
 
 # ---- sinks ---------------------------------------------------------------------------
 
-def find_sinks(g: nx.DiGraph) -> list[Sink]:
-    """v1: the synthetic `Admin` node only.
+DATA_STORE_LABELS = ("S3Bucket", "RdsInstance")
 
-    The handbook also lists production data stores, KMS admin and CloudTrail deletion as
-    sinks. Those need resource classification we don't have yet (nothing in the collectors
-    says "this bucket is production"), and inventing it would be judgment in the wrong
-    layer. Deferred deliberately; this function is the one place to add them.
+
+def find_sinks(g: nx.DiGraph) -> list[Sink]:
+    """The targets an attacker wants to reach.
+
+    v1 sinks:
+      * ADMIN          — the synthetic Admin node (full account compromise).
+      * SENSITIVE_DATA — a data store (S3/RDS) the account owner tagged sensitive; reaching
+                         CAN_READ/CAN_WRITE to it is the path.
+
+    Deferred to Phase 7 (v2), each for a concrete reason, not oversight:
+      * KMS admin — needs key-policy admin-action reasoning the evaluator doesn't do yet.
+      * CloudTrail deletion (anti-forensics) — needs a CloudTrail collector, which we
+        don't have.
     """
-    if "admin" not in g:
-        return []
-    return [Sink("admin", "ADMIN", "full administrative control of the account")]
+    sinks: list[Sink] = []
+    if "admin" in g:
+        sinks.append(Sink("admin", "ADMIN", "full administrative control of the account"))
+    for uid, data in g.nodes(data=True):
+        if data.get("label") in DATA_STORE_LABELS:
+            why = sensitive_reason(uid, data.get("record") or {})
+            if why:
+                sinks.append(Sink(uid, "SENSITIVE_DATA", f"sensitive data store — {why}"))
+    return sinks
 
 
 # ---- already-admin (source exclusion) ------------------------------------------------

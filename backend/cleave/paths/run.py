@@ -60,8 +60,11 @@ def run(from_raw: bool = False, as_json: bool = False,
 
     ext = sum(1 for s in sources if s.kind == EXTERNAL)
     print(f"graph: {g.number_of_nodes()} nodes, {g.number_of_edges()} connected pairs")
+    n_data = sum(1 for s in sinks if s.kind == "SENSITIVE_DATA")
+    n_admin = sum(1 for s in sinks if s.kind == "ADMIN")
     print(f"sources: {len(sources)} ({ext} external, {len(sources) - ext} assumed-compromise)"
-          f" · sinks: {len(sinks)} · hop limit {max_hops}, K={k}")
+          f" · sinks: {len(sinks)} ({n_admin} admin, {n_data} sensitive-data)"
+          f" · hop limit {max_hops}, K={k}")
     print(f"\n{len(ranked)} attack path(s) found (ranked)\n")
     by_key = {p.dedup_key: p for p in paths}
     for d in ranked:

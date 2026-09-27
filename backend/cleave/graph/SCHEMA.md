@@ -143,6 +143,22 @@ means *"anyone in this account whose identity policy also allows it"* — it del
 IAM rather than granting anything, so it is never treated as an independent Allow.
 Treating it as one would make every bucket readable by every principal in the account.
 
+### Sinks — what an attacker is trying to reach (Phase 4/5)
+
+A path is only interesting if it ENDS somewhere worth reaching. Sinks:
+
+- **ADMIN** — the synthetic `Admin` node: full account compromise.
+- **SENSITIVE_DATA** — an S3 bucket or RDS instance the *account owner* classified
+  sensitive, via a tag (default: a key like `Environment`/`DataClassification` with a value
+  like `production`/`prod`/`sensitive`/`pii`) or an explicit ARN list. Both live in
+  `paths/policy.json`. Reaching `CAN_READ`/`CAN_WRITE` to it is the path. **Cleave never
+  decides on its own that data is sensitive** — it reads the owner's tag, keeping the
+  collectors non-judging (constraint 3). No tag, no sink.
+
+Deferred to Phase 7 (v2), each for a concrete reason: **KMS admin** (needs key-policy
+admin-action reasoning the evaluator does not do yet) and **CloudTrail deletion /
+anti-forensics** (needs a CloudTrail collector, which does not exist).
+
 ### C. Which edges path search may WALK (Phase 4)
 
 Defining an edge is not the same as saying an attacker can traverse it. Path search uses an

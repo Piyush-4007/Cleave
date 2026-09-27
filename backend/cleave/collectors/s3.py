@@ -25,9 +25,14 @@ def collect(ctx) -> list[dict]:
         acl = _try(lambda: s3.get_bucket_acl(Bucket=name).get("Grants"))
         enc = _try(lambda: s3.get_bucket_encryption(Bucket=name)
                    .get("ServerSideEncryptionConfiguration"))
+        # Tags are read, not judged — the sink layer decides what a tag means. Untagged
+        # buckets raise NoSuchTagSet, which _try swallows to {}.
+        tagset = _try(lambda: s3.get_bucket_tagging(Bucket=name).get("TagSet")) or []
+        tags = {t["Key"]: t["Value"] for t in tagset}
         out.append({
             "_type": "S3Bucket", "_id": f"arn:aws:s3:::{name}", "Name": name,
             "Region": loc, "CreationDate": b.get("CreationDate"),
             "Policy": policy, "PublicAccessBlock": pab, "Acl": acl, "Encryption": enc,
+            "Tags": tags,
         })
     return out

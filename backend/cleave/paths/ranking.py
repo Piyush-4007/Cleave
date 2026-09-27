@@ -26,6 +26,21 @@ def load_policy() -> dict:
     return _strip_comments(json.loads(POLICY_PATH.read_text()))
 
 
+def sensitive_reason(uid: str, rec: dict) -> str | None:
+    """Why this data store is sensitive, or None. Reads a tag or an explicit ARN list from
+    policy.json — the account owner's own classification, never Cleave's guess. This is the
+    ONE signal; there is no heuristic that decides data is 'production' on its own."""
+    rule = load_policy().get("sensitive_data", {})
+    if uid in set(rule.get("arns", [])):
+        return "listed in policy.json sensitive_data.arns"
+    keys = {k.lower() for k in rule.get("tag_keys", [])}
+    values = {v.lower() for v in rule.get("tag_values", [])}
+    for k, v in (rec.get("Tags") or {}).items():
+        if k.lower() in keys and str(v).lower() in values:
+            return f"tag {k}={v}"
+    return None
+
+
 # ---- documented-technique catalogue --------------------------------------------------
 # Maps an ordered edge-type signature (a subsequence that must appear in the path, in
 # order) to the published technique it is. Small on purpose — a named technique is a real
@@ -61,16 +76,17 @@ def detect_technique(path: AttackPath) -> dict | None:
 
 
 # ---- production-data sink -------------------------------------------------------------
-# The handbook scores a production-data sink +2.5, but nothing marks data as "production"
-# yet — no collector emits it. Rather than invent a signal, we read an explicit tag if the
-# account happens to carry one, and otherwise this factor is simply 0. Documented, honest,
-# and the one place to wire a real signal in later.
+# The production-data factor fires when the path's sink is a sensitive data store, per the
+# owner-supplied tag/ARN rule in policy.json (see sensitive_reason). No tag, no factor.
 def _is_production_sink(path: AttackPath, g) -> bool:
+    """A path scores the production-data factor when its sink IS a sensitive data store.
+    Uses the same classifier find_sinks does, so the score and the sink agree."""
+    if path.sink.kind == "SENSITIVE_DATA":
+        return True
     if g is None:
         return False
     rec = (g.nodes.get(path.sink.uid, {}) or {}).get("record") or {}
-    tags = rec.get("Tags") or {}
-    return str(tags.get("environment", "")).lower() in ("production", "prod")
+    return sensitive_reason(path.sink.uid, rec) is not None
 
 
 # ---- scoring --------------------------------------------------------------------------
