@@ -2,7 +2,7 @@
 
     python -m cleave.paths.run              # read the graph from Neo4j
     python -m cleave.paths.run --from-raw   # skip Neo4j, build from CLEAVE_OUTPUT_DIR
-    python -m cleave.paths.run --json       # machine-readable (Phase 6 will use the API)
+    python -m cleave.paths.run --json       # machine-readable (same data the API serves)
 """
 from __future__ import annotations
 import argparse
@@ -10,12 +10,9 @@ import json
 import logging
 import pathlib
 from ..config import settings
-from .endpoints import find_sinks, find_sources
 from .graphview import graph_from_neo4j, graph_from_records
-from .model import EXTERNAL
 from .search import MAX_HOPS, K_PER_PAIR, find_paths
-from .ranking import rank
-from .cut import minimum_cut, best_single_fix
+from .analysis import analyze
 
 
 def _records_from_raw(raw_dir: str) -> tuple[list[dict], list[dict]]:
@@ -46,26 +43,23 @@ def run(from_raw: bool = False, as_json: bool = False,
         finally:
             driver.close()
 
-    sources, sinks = find_sources(g), find_sinks(g)
-    paths = find_paths(g, sources, sinks, max_hops=max_hops, k=k)
-
-    ranked = rank(paths, g)
-    cut = minimum_cut(paths)
-    fixes = best_single_fix(paths)
+    result = analyze(g, max_hops=max_hops, k=k)
+    ranked, cut, fixes = result["paths"], result["minimum_cut"], result["best_single_fix"]
 
     if as_json:
-        out = {"paths": ranked, "minimum_cut": cut, "best_single_fix": fixes}
-        print(json.dumps(out, indent=2))
-        return out
+        print(json.dumps(result, indent=2))
+        return result
 
-    ext = sum(1 for s in sources if s.kind == EXTERNAL)
-    print(f"graph: {g.number_of_nodes()} nodes, {g.number_of_edges()} connected pairs")
-    n_data = sum(1 for s in sinks if s.kind == "SENSITIVE_DATA")
-    n_admin = sum(1 for s in sinks if s.kind == "ADMIN")
-    print(f"sources: {len(sources)} ({ext} external, {len(sources) - ext} assumed-compromise)"
-          f" · sinks: {len(sinks)} ({n_admin} admin, {n_data} sensitive-data)"
-          f" · hop limit {max_hops}, K={k}")
+    sm = result["summary"]
+    print(f"graph: {result['graph']['nodes']} nodes, "
+          f"{result['graph']['connected_pairs']} connected pairs")
+    print(f"sources: {sm['sources']} ({sm['sources_external']} external, "
+          f"{sm['sources_assumed_compromise']} assumed-compromise)"
+          f" · sinks: {sm['sinks']} ({sm['sinks_admin']} admin, "
+          f"{sm['sinks_sensitive_data']} sensitive-data) · hop limit {max_hops}, K={k}")
     print(f"\n{len(ranked)} attack path(s) found (ranked)\n")
+    # narration is rebuilt from the search objects (the ranked dicts are pure data)
+    paths = find_paths(g, max_hops=max_hops, k=k)
     by_key = {p.dedup_key: p for p in paths}
     for d in ranked:
         r = d["ranking"]
@@ -81,7 +75,7 @@ def run(from_raw: bool = False, as_json: bool = False,
     if not ranked:
         print("No path from any source to admin. If a known-vulnerable scenario is "
               "deployed, the edges are wrong — do not raise the hop limit.")
-        return {"paths": [], "minimum_cut": cut, "best_single_fix": fixes}
+        return result
 
     if fixes:
         top = fixes[0]
@@ -93,7 +87,7 @@ def run(from_raw: bool = False, as_json: bool = False,
     for e in cut["edges"]:
         print(f"    cut {e['rel']} ({e['frm'].split('/')[-1]} -> {e['to'].split('/')[-1]}), "
               f"cost {e['cost']}: {e['fix']}")
-    return {"paths": ranked, "minimum_cut": cut, "best_single_fix": fixes}
+    return result
 
 
 def main() -> None:

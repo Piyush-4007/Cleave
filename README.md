@@ -15,8 +15,8 @@ cp .env.example .env      # fill in a couple of local values
 docker compose up
 ```
 
-Then open http://localhost:8000/health (API) — the dashboard (Phase 6) will live at
-http://localhost:3000.
+Then open http://localhost:8000/health (API) or http://localhost:8000/docs (interactive
+API docs) — the dashboard (Phase 6) will live at http://localhost:3000.
 
 ## Connect an AWS account (no keys)
 
@@ -83,3 +83,18 @@ breaks the most paths — the demo headline), and the **minimum cut** (the cheap
 changes that breaks every path). Scoring weights and remediation costs live in
 `cleave/paths/policy.json`, editable by hand so any score is reproducible with a
 calculator.
+
+## The API (Phase 5/6 bridge)
+
+The same engine behind the CLI is served over HTTP for the dashboard:
+
+| Route | Returns |
+|---|---|
+| `GET /health` | liveness |
+| `GET /analysis` | ranked paths + minimum cut + best single fix + summary |
+| `GET /analysis/summary` | just the dashboard numbers (no path bodies) |
+| `GET /analysis/paths/{id}` | one path + its drawable subgraph (route and cut flagged) |
+
+The graph source is Neo4j (populated by `./load.sh`); in dev it falls back to the raw
+dump if Neo4j is down. Analysis is cached — pass `?refresh=true` after a new scan/load.
+Interactive docs at `/docs`.
