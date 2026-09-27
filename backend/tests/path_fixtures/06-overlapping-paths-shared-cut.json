@@ -1,0 +1,56 @@
+{
+  "name": "Three routes funnel through one admin policy; a fourth is independent",
+  "ground_truth": "synthetic — built for Phase 5 (min cut is trivial on one path)",
+  "story": "deploy-bot holds an admin-equivalent policy. Two low-priv users (intern, contractor) can each read a bucket that leaks deploy-bot's key, and deploy-bot is itself a source. All three of those routes pass through the single GRANTS_ADMIN edge on deploy-bot-iam — cut that one edge and three paths die. A fourth route (public bucket -> break-glass admin) is independent and needs its own cut.",
+  "cred_findings": [
+    {"bucket_id": "arn:aws:s3:::shared-artifacts", "object_key": "ci/.env",
+     "key_id": "AKIAOVERLAP0000001", "key_type": "AKIA",
+     "owner_arn": "arn:aws:iam::111122223333:user/deploy-bot"},
+    {"bucket_id": "arn:aws:s3:::public-dump", "object_key": "backup/creds.txt",
+     "key_id": "AKIAOVERLAP0000002", "key_type": "AKIA",
+     "owner_arn": "arn:aws:iam::111122223333:user/break-glass"}
+  ],
+  "records": [
+    {"_type": "IamUser", "_id": "arn:aws:iam::111122223333:user/deploy-bot",
+     "UserName": "deploy-bot", "Groups": [], "InlinePolicies": {}, "AccessKeys": [
+       {"AccessKeyId": "AKIAOVERLAP0000001", "Status": "Active"}],
+     "AttachedPolicies": ["arn:aws:iam::111122223333:policy/deploy-bot-iam"]},
+    {"_type": "IamPolicy", "_id": "arn:aws:iam::111122223333:policy/deploy-bot-iam",
+     "PolicyName": "deploy-bot-iam", "Document": {"Statement": [
+       {"Effect": "Allow", "Action": "iam:CreateAccessKey", "Resource": "*"}]}},
+
+    {"_type": "IamUser", "_id": "arn:aws:iam::111122223333:user/intern",
+     "UserName": "intern", "Groups": [], "InlinePolicies": {}, "AccessKeys": [],
+     "AttachedPolicies": ["arn:aws:iam::111122223333:policy/read-shared"]},
+    {"_type": "IamUser", "_id": "arn:aws:iam::111122223333:user/contractor",
+     "UserName": "contractor", "Groups": [], "InlinePolicies": {}, "AccessKeys": [],
+     "AttachedPolicies": ["arn:aws:iam::111122223333:policy/read-shared"]},
+    {"_type": "IamPolicy", "_id": "arn:aws:iam::111122223333:policy/read-shared",
+     "PolicyName": "read-shared", "Document": {"Statement": [
+       {"Effect": "Allow", "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::shared-artifacts/*"}]}},
+    {"_type": "S3Bucket", "_id": "arn:aws:s3:::shared-artifacts", "Name": "shared-artifacts",
+     "PublicAccessBlock": {"BlockPublicAcls": true, "IgnorePublicAcls": true,
+                           "BlockPublicPolicy": true, "RestrictPublicBuckets": true},
+     "Policy": null, "Acl": []},
+
+    {"_type": "IamUser", "_id": "arn:aws:iam::111122223333:user/break-glass",
+     "UserName": "break-glass", "Groups": [], "InlinePolicies": {}, "AccessKeys": [
+       {"AccessKeyId": "AKIAOVERLAP0000002", "Status": "Active"}],
+     "AttachedPolicies": ["arn:aws:iam::111122223333:policy/bg-admin"]},
+    {"_type": "IamPolicy", "_id": "arn:aws:iam::111122223333:policy/bg-admin",
+     "PolicyName": "bg-admin", "Document": {"Statement": [
+       {"Effect": "Allow", "Action": "iam:PutUserPolicy", "Resource": "*"}]}},
+    {"_type": "S3Bucket", "_id": "arn:aws:s3:::public-dump", "Name": "public-dump",
+     "PublicAccessBlock": null, "Policy": null,
+     "Acl": [{"Grantee": {"URI": "http://acs.amazonaws.com/groups/global/AllUsers"},
+              "Permission": "READ"}]}
+  ],
+  "expect": {
+    "min_paths": 5,
+    "shared_choke": {
+      "frm": "arn:aws:iam::111122223333:policy/deploy-bot-iam",
+      "to": "admin", "rel": "GRANTS_ADMIN", "breaks_at_least": 3
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "_comment": "Tunable weights and remediation costs for path ranking and the minimum cut (Phase 5). Editable by hand — the whole point is that a reviewer can recompute any score with a calculator. Scores normalise to 0-10.",
+
+  "score_weights": {
+    "_comment": "Handbook factors. A path's raw score is the sum of the factors that apply; then normalised to 10 by dividing by the max achievable and x10.",
+    "unauthenticated_source": 3.0,
+    "short_path_bonus": 2.0,
+    "admin_sink": 3.0,
+    "production_data_sink": 2.5,
+    "all_certain_edges": 1.0,
+    "documented_technique": 1.0,
+    "cross_account": 0.5
+  },
+
+  "short_path": {
+    "_comment": "short_path_bonus is scaled: a 2-hop path gets the full bonus, longer paths less, down to 0 at max_hops. bonus * (max_hops - hops) / (max_hops - 2).",
+    "min_hops_for_full_bonus": 2
+  },
+
+  "remediation_costs": {
+    "_comment": "Cost to cut each edge type = disruption of the fix, 1 (trivial) to 10 (removes real access). null = uncuttable (never proposed as a cut). Used as edge capacity in the minimum cut and as the denominator in best-single-fix ranking.",
+    "CAN_REACH": 1,
+    "CONTAINS_CREDENTIAL": 2,
+    "CAN_READ": 3,
+    "CAN_WRITE": 4,
+    "GRANTS_ADMIN": 6,
+    "CAN_LAUNCH_AS": 5,
+    "CAN_ASSUME": 5,
+    "HAS_INSTANCE_PROFILE": 4,
+    "CONTAINS_ROLE": 4,
+    "EXECUTES_AS": 5,
+    "HAS_ATTACHED": 7,
+    "IN_GROUP": 6
+  },
+
+  "remediation_fixes": {
+    "_comment": "Plain-English fix per edge type, shown next to the cut. Phase 8 turns the chosen cut into an actual Terraform patch.",
+    "CAN_REACH": "restrict the security group / remove the public IP so the internet cannot reach it",
+    "CONTAINS_CREDENTIAL": "rotate the exposed key and remove it from the object",
+    "CAN_READ": "scope the identity/bucket policy so this principal can no longer read it",
+    "CAN_WRITE": "scope the policy so this principal can no longer modify it",
+    "GRANTS_ADMIN": "scope the admin-equivalent action to specific resources, or detach the policy",
+    "CAN_LAUNCH_AS": "remove PassRole or the compute permission so the role cannot be launched",
+    "CAN_ASSUME": "tighten the role trust policy so this principal cannot assume it",
+    "HAS_INSTANCE_PROFILE": "detach the over-privileged role from the instance profile",
+    "CONTAINS_ROLE": "remove the powerful role from the instance profile",
+    "EXECUTES_AS": "give the function a least-privilege execution role",
+    "HAS_ATTACHED": "detach or scope down the policy",
+    "IN_GROUP": "remove the user from the group"
+  }
+}

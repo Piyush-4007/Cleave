@@ -14,6 +14,8 @@ from .endpoints import find_sinks, find_sources
 from .graphview import graph_from_neo4j, graph_from_records
 from .model import EXTERNAL
 from .search import MAX_HOPS, K_PER_PAIR, find_paths
+from .ranking import rank
+from .cut import minimum_cut, best_single_fix
 
 
 def _records_from_raw(raw_dir: str) -> tuple[list[dict], list[dict]]:
@@ -47,23 +49,48 @@ def run(from_raw: bool = False, as_json: bool = False,
     sources, sinks = find_sources(g), find_sinks(g)
     paths = find_paths(g, sources, sinks, max_hops=max_hops, k=k)
 
+    ranked = rank(paths, g)
+    cut = minimum_cut(paths)
+    fixes = best_single_fix(paths)
+
     if as_json:
-        print(json.dumps([p.as_dict() for p in paths], indent=2))
-        return [p.as_dict() for p in paths]
+        out = {"paths": ranked, "minimum_cut": cut, "best_single_fix": fixes}
+        print(json.dumps(out, indent=2))
+        return out
 
     ext = sum(1 for s in sources if s.kind == EXTERNAL)
     print(f"graph: {g.number_of_nodes()} nodes, {g.number_of_edges()} connected pairs")
     print(f"sources: {len(sources)} ({ext} external, {len(sources) - ext} assumed-compromise)"
           f" · sinks: {len(sinks)} · hop limit {max_hops}, K={k}")
-    print(f"\n{len(paths)} attack path(s) found\n")
-    for i, p in enumerate(paths, 1):
-        print(f"--- PATH-{i:03d}  {p.length} hops  [{p.confidence}] ---")
-        print(p.narrate())
+    print(f"\n{len(ranked)} attack path(s) found (ranked)\n")
+    by_key = {p.dedup_key: p for p in paths}
+    for d in ranked:
+        r = d["ranking"]
+        print(f"--- {d['id']}  score {r['score']}/10  {d['length']} hops  [{d['confidence']}] ---")
+        if r["technique"]:
+            print(f"    technique: {r['technique']}")
+        key = (d["source"]["uid"], d["sink"]["uid"], tuple(h["rel"] for h in d["hops"]))
+        print(by_key[key].narrate())
+        if d["variants"] > 1:
+            print(f"    (+{d['variants'] - 1} variant route(s) collapsed here)")
         print()
-    if not paths:
+
+    if not ranked:
         print("No path from any source to admin. If a known-vulnerable scenario is "
               "deployed, the edges are wrong — do not raise the hop limit.")
-    return [p.as_dict() for p in paths]
+        return {"paths": [], "minimum_cut": cut, "best_single_fix": fixes}
+
+    if fixes:
+        top = fixes[0]
+        print(f"BEST SINGLE FIX — {top['fix']}")
+        print(f"    breaks {top['paths_cut']} of {top['paths_total']} paths, "
+              f"remediation cost {top['cost']}/10  ({top['rel']} "
+              f"{top['frm'].split('/')[-1]} -> {top['to'].split('/')[-1]})")
+    print(f"\nMINIMUM CUT — breaks all {cut['paths_total']} paths, total cost {cut['total_cost']}")
+    for e in cut["edges"]:
+        print(f"    cut {e['rel']} ({e['frm'].split('/')[-1]} -> {e['to'].split('/')[-1]}), "
+              f"cost {e['cost']}: {e['fix']}")
+    return {"paths": ranked, "minimum_cut": cut, "best_single_fix": fixes}
 
 
 def main() -> None:

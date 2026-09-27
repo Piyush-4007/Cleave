@@ -45,7 +45,7 @@ and paste back its ARN:
 | `eval/`                      | 10 | benchmark harness |
 
 ## Status
-Phase 4 — path search (v1). See `../Cleave_Build_Handbook.md` for the full plan.
+Phase 5 — ranking + minimum cut. See `../Cleave_Build_Handbook.md` for the full plan.
 
 ## Running a scan in dev (Phase 1)
 
@@ -77,3 +77,9 @@ not already a literal administrator — "if this credential leaked, what could i
 A principal that already holds `*:*` is the account's baseline and is not reported.
 
 **Detection is deterministic.** Same graph in, same paths out. No model is involved.
+
+The output is three things: the ranked paths, the **best single fix** (the one change that
+breaks the most paths — the demo headline), and the **minimum cut** (the cheapest set of
+changes that breaks every path). Scoring weights and remediation costs live in
+`cleave/paths/policy.json`, editable by hand so any score is reproducible with a
+calculator.

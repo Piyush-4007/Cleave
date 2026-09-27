@@ -85,8 +85,14 @@ def test_traversable_subgraph_drops_context_edges():
 
 
 # ---- the ground-truth fixtures -------------------------------------------------------
+# Path fixtures come in two shapes: those with `expect.paths` (a written-out expected path
+# list, checked here) and Phase-5 fixtures that only declare aggregate expectations like a
+# shared choke point (checked in test_ranking.py). The path-list tests skip the latter.
+PATHLIST_FIXTURES = [p for p in FIXTURES
+                     if "paths" in json.loads(p.read_text()).get("expect", {})]
 
-@pytest.mark.parametrize("path", FIXTURES, ids=[p.stem for p in FIXTURES])
+
+@pytest.mark.parametrize("path", PATHLIST_FIXTURES, ids=[p.stem for p in PATHLIST_FIXTURES])
 def test_fixture_finds_expected_paths(path):
     fx, _g, found = _load(path)
     found_sigs = {_signature(p) for p in found}
@@ -103,7 +109,7 @@ def test_fixture_finds_expected_paths(path):
             assert match.confidence == exp["confidence"]
 
 
-@pytest.mark.parametrize("path", FIXTURES, ids=[p.stem for p in FIXTURES])
+@pytest.mark.parametrize("path", PATHLIST_FIXTURES, ids=[p.stem for p in PATHLIST_FIXTURES])
 def test_fixture_finds_nothing_extra(path):
     """Over-reporting is the failure mode that rebuilds alert fatigue. A fixture pins the
     exact number of paths so a new edge type cannot quietly double it."""
@@ -115,7 +121,7 @@ def test_fixture_finds_nothing_extra(path):
             f"{uid} should not reach admin"
 
 
-@pytest.mark.parametrize("path", FIXTURES, ids=[p.stem for p in FIXTURES])
+@pytest.mark.parametrize("path", PATHLIST_FIXTURES, ids=[p.stem for p in PATHLIST_FIXTURES])
 def test_fixture_hops_carry_evidence(path):
     """Every edge needs evidence tied to a real attacker action (standing constraint 4)."""
     _fx, _g, found = _load(path)
