@@ -35,14 +35,23 @@ def run() -> dict[str, int]:
         summary[name] = len(records)
         log.info("  %-12s %d records", name, len(records))
 
-    # credential-in-content scan (only touches S3 objects if any buckets exist)
-    from . import credscan
-    owners = credscan.access_key_owners(collected.get("iam", []))
-    findings = base.safe("credscan",
-                         lambda: credscan.scan_buckets(session, collected.get("s3", []), owners))
+    # Credential-in-content scan. OFF by default: it reads S3 object bodies (s3:GetObject),
+    # which the default read-only role does not grant, so running it unconditionally would
+    # spray AccessDenied. The user opts in (docs/opt-in-credscan.md) once they have added
+    # the grant. Findings map a leaked key to its owning principal; the secret is never
+    # stored (credscan keeps only the key ID).
+    if settings.cleave_credscan:
+        from . import credscan
+        owners = credscan.access_key_owners(collected.get("iam", []))
+        findings = base.safe("credscan",
+                             lambda: credscan.scan_buckets(session, collected.get("s3", []), owners))
+        log.info("  %-12s %d findings", "credscan", len(findings))
+    else:
+        findings = []
+        log.info("  %-12s disabled (set CLEAVE_CREDSCAN=true + grant s3:GetObject to enable)",
+                 "credscan")
     (outdir / "_credentials.json").write_text(json.dumps(findings, indent=2, default=str))
     summary["credscan_findings"] = len(findings)
-    log.info("  %-12s %d findings", "credscan", len(findings))
 
     (outdir / "_summary.json").write_text(json.dumps(summary, indent=2))
     log.info("wrote %d collectors -> %s", len(summary), outdir)

@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     aws_profile: str = ""
     cleave_output_dir: str = "/data/raw"
+    # Credential-in-content scanning reads S3 object *bodies* (s3:GetObject), which the
+    # default read-only role (SecurityAudit + ViewOnlyAccess) does NOT grant. Off by
+    # default: the user opts in by adding s3:GetObject to the role AND setting this true.
+    # See docs/opt-in-credscan.md.
+    cleave_credscan: bool = False
 
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"

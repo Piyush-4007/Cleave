@@ -37,3 +37,43 @@ def test_unknown_key_makes_no_edge():
     findings = [{"bucket_id": "b", "object_key": "x.env", "key_id": "AKIAUNKNOWNUNKNOWN00",
                  "key_type": "AKIA", "owner_arn": None}]
     assert credential_edges(findings) == []
+
+
+# ---- opt-in gating (Decision A) ------------------------------------------------------
+
+def test_credscan_is_off_by_default():
+    """Reading S3 object bodies needs s3:GetObject, which the default read-only role does
+    not grant — so the scan must be opt-in, not run unconditionally."""
+    from cleave.config import Settings
+    assert Settings().cleave_credscan is False
+
+
+def test_collect_skips_credscan_when_disabled(monkeypatch, tmp_path):
+    """With the toggle off, the scan writes an empty _credentials.json and never calls
+    scan_buckets (which would spray AccessDenied on the default role)."""
+    import cleave.collect as collect
+    from cleave import credscan
+
+    monkeypatch.setattr(collect.settings, "cleave_credscan", False)
+    monkeypatch.setattr(collect.settings, "cleave_output_dir", str(tmp_path))
+    monkeypatch.setattr(collect.base, "COLLECTORS", {})  # no AWS collectors
+
+    class FakeSession:
+        def client(self, *_a, **_k):
+            class C:
+                def get_caller_identity(self):
+                    return {"Arn": "arn:aws:iam::1:role/CleaveAudit"}
+            return C()
+    monkeypatch.setattr(collect, "build_session", lambda: FakeSession())
+
+    called = {"scan": False}
+    def _boom(*_a, **_k):
+        called["scan"] = True
+        raise AssertionError("scan_buckets must not run when credscan is disabled")
+    monkeypatch.setattr(credscan, "scan_buckets", _boom)
+
+    summary = collect.run()
+    assert called["scan"] is False
+    assert summary["credscan_findings"] == 0
+    import json, pathlib
+    assert json.loads((pathlib.Path(tmp_path) / "_credentials.json").read_text()) == []
