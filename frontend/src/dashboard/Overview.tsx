@@ -1,30 +1,84 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Scissors, CheckCircle } from "@phosphor-icons/react";
+import { ArrowRight, ArrowClockwise, CircleNotch, Scissors, CheckCircle } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
+import { connect, type Analysis } from "./api";
+
+const COVERAGE = "IAM, S3, EC2, VPC, Lambda, RDS, Secrets Manager, KMS";
+
+function when(iso: string): string {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Zero paths is a real, finished result — say so plainly, with what was scanned. */
+function CleanResult({ data }: { data: Analysis }) {
+  const nav = useNavigate();
+  const { reload } = useAnalysis();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const scan = data.scan;
+  const via = scan?.mode === "role" ? "via read-only role" : scan?.mode === "login" ? "via your AWS login" : null;
+
+  const rescan = async () => {
+    if (scan?.mode !== "login") return nav("/dashboard/connect"); // a role needs its ARN again
+    setBusy(true);
+    setErr(null);
+    try {
+      await connect("login");
+      reload();
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-[720px] px-6 py-16 text-center sm:px-8">
+      <div className="mono inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.16em] text-[color:var(--accent)]">
+        <CheckCircle size={16} weight="fill" /> scan complete
+      </div>
+      <h1 className="display mt-4 text-[28px] leading-tight sm:text-[34px]">No attack paths found.</h1>
+      <p className="mx-auto mt-3 max-w-[50ch] text-[15px] leading-relaxed text-[color:var(--text-2)]">
+        Cleave read {data.summary.resources.toLocaleString()} resources in account{" "}
+        <span className="mono">{data.account}</span> and found no route from any entry point or
+        identity to admin or to sensitive data.
+      </p>
+      <div className="mono mx-auto mt-5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
+        <span>acct {data.account}</span>
+        {via && <><span aria-hidden>·</span><span>{via}</span></>}
+        {scan && <><span aria-hidden>·</span><span>scanned {when(scan.scanned_at)}</span></>}
+      </div>
+      <p className="mono mx-auto mt-2 text-[11.5px] text-[color:var(--dim)]">covered: {COVERAGE}</p>
+
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <button onClick={rescan} disabled={busy}
+          className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--accent)] px-4 py-2 text-[12px] text-[color:var(--text)] disabled:opacity-60">
+          {busy ? <CircleNotch size={13} className="animate-spin" /> : <ArrowClockwise size={13} />}
+          {busy ? "scanning…" : "scan again"}
+        </button>
+        <button onClick={() => nav("/dashboard/connect")}
+          className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-4 py-2 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--accent)]">
+          different account <ArrowRight size={13} />
+        </button>
+      </div>
+      {err && <p className="mt-4 text-[13px] text-[color:var(--text-2)]">{err}</p>}
+    </div>
+  );
+}
 
 export function Overview() {
   const { data, loading, error } = useAnalysis();
+  const nav = useNavigate(); // hooks before any early return
   if (error) return null; // the shell's ErrorBanner explains it
-  const nav = useNavigate();
   if (loading || !data) return <div className="mono p-10 text-[13px] text-[color:var(--muted)]">Loading…</div>;
   const s = data.summary;
 
-  if (data.paths.length === 0) {
-    return (
-      <div className="mx-auto max-w-[720px] px-6 py-16 text-center sm:px-8">
-        <CheckCircle size={40} className="accent mx-auto" weight="fill" />
-        <h1 className="display mt-5 text-[28px] leading-tight sm:text-[34px]">No attack paths found.</h1>
-        <p className="mx-auto mt-3 max-w-[46ch] text-[15px] leading-relaxed text-[color:var(--muted)]">
-          {s.resources.toLocaleString()} resources scanned, and nothing reachable chains to
-          admin or to sensitive data. Either the account is clean, or connect a different one.
-        </p>
-        <button onClick={() => nav("/dashboard/connect")}
-          className="mono mt-8 inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-4 py-2 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--accent)]">
-          connect an account <ArrowRight size={13} />
-        </button>
-      </div>
-    );
-  }
+  if (data.paths.length === 0) return <CleanResult data={data} />;
 
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-10 sm:px-8">

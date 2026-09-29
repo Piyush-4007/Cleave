@@ -137,6 +137,11 @@ def get_analysis(refresh: bool = False) -> dict:
     out = {"source": st["source"], **st["analysis"]}
     if account:
         out["account"] = account
+    # When/how the shown scan was taken, so the UI can say "scan complete" rather than
+    # leave a clean result looking like nothing happened.
+    meta = _meta_from_raw(settings.cleave_output_dir)
+    if meta and meta.get("account") == account:
+        out["last_scan"] = meta
     return out
 
 

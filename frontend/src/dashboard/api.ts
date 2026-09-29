@@ -53,10 +53,16 @@ export interface CutEdge {
   paths_total: number;
 }
 
+export interface ScanInfo {
+  mode: "login" | "role" | "cli";
+  scanned_at: string; // ISO
+}
+
 export interface Analysis {
-  source: "neo4j" | "raw" | "mock";
+  source: "neo4j" | "raw" | "mock" | "scan";
   account: string;
   generated_at: string;
+  scan?: ScanInfo; // absent for the mock and older dumps
   summary: {
     resources: number;
     sources: number;
@@ -175,6 +181,7 @@ function mapLive(a: any): Analysis {
     source: a.source ?? "neo4j",
     account: a.account ?? "connected account",
     generated_at: a.generated_at ?? new Date().toISOString(),
+    scan: a.last_scan ? { mode: a.last_scan.mode, scanned_at: a.last_scan.scanned_at } : undefined,
     summary: {
       resources: a.graph?.nodes ?? 0,
       sources: a.summary?.sources ?? 0,

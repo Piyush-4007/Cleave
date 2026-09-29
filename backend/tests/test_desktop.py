@@ -76,6 +76,7 @@ def test_scan_is_persisted_and_reloaded_after_restart(monkeypatch, tmp_path, fre
     assert a["source"] == "raw"
     assert a["summary"]["paths_found"] == 5
     assert a["account"] == "111122223333"
+    assert a["last_scan"]["mode"] == "login" and a["last_scan"]["scanned_at"]
 
 
 def test_memory_store_never_touches_neo4j(monkeypatch, tmp_path):
