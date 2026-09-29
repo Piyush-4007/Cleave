@@ -5,6 +5,7 @@ import { Overview } from "./dashboard/Overview";
 import { PathViewer } from "./dashboard/PathViewer";
 import { Remediation } from "./dashboard/Remediation";
 import { Findings, History } from "./dashboard/Simple";
+import { Connect } from "./dashboard/Connect";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="findings" element={<Findings />} />
           <Route path="remediation" element={<Remediation />} />
           <Route path="history" element={<History />} />
+          <Route path="connect" element={<Connect />} />
         </Route>
       </Routes>
     </BrowserRouter>

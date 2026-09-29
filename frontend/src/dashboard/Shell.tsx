@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, Link } from "react-router-dom";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { Mark } from "../components/Logo";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -15,14 +15,14 @@ const TABS = [
 function AccountBadge() {
   const { data } = useAnalysis();
   return (
-    <div className="flex items-center gap-3">
-      <span className="mono text-[12px] text-[color:var(--muted)]">
+    <Link to="/dashboard/connect" className="flex items-center gap-3 no-underline" title="Manage connection">
+      <span className="mono text-[12px] text-[color:var(--muted)] hover:text-[color:var(--text)]">
         {data ? `acct ${data.account}` : "connecting…"}
       </span>
       <span className="mono inline-flex items-center gap-1.5 rounded border border-[color:var(--line)] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[color:var(--accent)]">
         <ShieldCheck size={13} weight="fill" /> read-only
       </span>
-    </div>
+    </Link>
   );
 }
 

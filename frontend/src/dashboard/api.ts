@@ -92,9 +92,48 @@ export async function getAnalysis(): Promise<Analysis> {
   return MOCK;
 }
 
-// Minimal mapper from the live API shape onto the UI types. The live subgraph endpoint
-// does not yet return per-node policy detail, so the inspector shows less on live data
-// until the backend `_node_view` is extended (tracked in REQUIREMENTS.md).
+// Map the live /analysis response onto the UI types. The backend enriches each path with
+// `view` (node names, types, inspector detail) and `title`, so live data renders as richly
+// as the mock.
 function mapLive(a: any): Analysis {
-  return { ...MOCK, source: a.source ?? "neo4j", summary: { ...MOCK.summary, ...a.summary } };
+  const paths: AttackPath[] = (a.paths ?? []).map((d: any) => ({
+    id: d.id,
+    rank: d.rank,
+    title: d.title ?? `${d.source?.kind} to ${d.sink?.kind}`,
+    source: { name: d.view?.[0]?.name ?? d.source?.uid, kind: d.source?.kind },
+    sink: { name: d.view?.[d.view.length - 1]?.name ?? d.sink?.uid, kind: d.sink?.kind },
+    score: d.ranking?.score ?? 0,
+    confidence: d.confidence,
+    technique: d.ranking?.technique ?? null,
+    nodes: (d.view ?? []).map((v: any) => ({ id: v.id, type: v.type, name: v.name, detail: v.detail ?? undefined })),
+    hops: (d.hops ?? []).map((h: any) => ({ frm: h.frm, to: h.to, rel: h.rel, reason: h.reason, confidence: h.confidence })),
+  }));
+
+  const mapEdge = (e: any): CutEdge => ({
+    frm: e.frm, to: e.to, rel: e.rel, cost: e.cost,
+    fix: e.fix, paths_cut: e.paths_cut ?? 0, paths_total: e.paths_total ?? a.summary?.paths_found ?? paths.length,
+  });
+
+  return {
+    source: a.source ?? "neo4j",
+    account: a.account ?? "connected account",
+    generated_at: a.generated_at ?? new Date().toISOString(),
+    summary: {
+      resources: a.graph?.nodes ?? 0,
+      sources: a.summary?.sources ?? 0,
+      sources_external: a.summary?.sources_external ?? 0,
+      paths_found: a.summary?.paths_found ?? paths.length,
+      sinks_admin: a.summary?.sinks_admin ?? 0,
+      sinks_sensitive_data: a.summary?.sinks_sensitive_data ?? 0,
+      top_score: a.summary?.top_score ?? 0,
+      best_single_fix: a.summary?.best_single_fix ?? null,
+    },
+    paths,
+    minimum_cut: {
+      edges: (a.minimum_cut?.edges ?? []).map(mapEdge),
+      total_cost: a.minimum_cut?.total_cost ?? 0,
+      paths_total: a.minimum_cut?.paths_total ?? paths.length,
+    },
+    best_single_fix: (a.best_single_fix ?? []).map(mapEdge),
+  };
 }

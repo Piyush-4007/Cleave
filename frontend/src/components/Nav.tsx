@@ -38,6 +38,12 @@ export function Nav() {
           >
             <GithubLogo size={18} />
           </a>
+          <a
+            href="/dashboard"
+            className="mono hidden text-[13px] text-[color:var(--muted)] transition-colors hover:text-[color:var(--accent)] sm:block"
+          >
+            live demo →
+          </a>
           <ThemeToggle />
           <div className="hidden sm:block">
             <Button href="#start">Get started</Button>
