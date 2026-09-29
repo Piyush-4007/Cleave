@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { DESKTOP } from "./desktop";
 import { Landing } from "./Landing";
 import { DashboardShell } from "./dashboard/Shell";
 import { Overview } from "./dashboard/Overview";
@@ -11,7 +12,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        {/* The desktop app is the tool, not the marketing site: open straight on it. */}
+        <Route path="/" element={DESKTOP ? <Navigate to="/dashboard" replace /> : <Landing />} />
         <Route path="/dashboard" element={<DashboardShell />}>
           <Route index element={<Overview />} />
           <Route path="paths" element={<PathViewer />} />

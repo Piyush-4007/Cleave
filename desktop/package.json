@@ -1,0 +1,14 @@
+{
+  "name": "cleave-desktop",
+  "private": true,
+  "version": "0.6.0",
+  "scripts": {
+    "backend": "\"./.venv/Scripts/python\" build_backend.py",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

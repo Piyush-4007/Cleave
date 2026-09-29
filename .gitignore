@@ -18,3 +18,4 @@ desktop/build/
 desktop/src-tauri/resources/backend/
 desktop/src-tauri/target/
 desktop/node_modules/
+desktop/src-tauri/gen/

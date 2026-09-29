@@ -75,12 +75,43 @@ export interface Analysis {
 // ---- client ------------------------------------------------------------------------
 
 import { MOCK } from "./mock";
+import { DESKTOP } from "../desktop";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const API_BASE = DESKTOP?.apiBase ?? import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+
+/** Every call carries the desktop token when there is one. */
+function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (DESKTOP) headers.set("X-Cleave-Token", DESKTOP.token);
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
+}
+
+/** Desktop: the backend starts alongside the window, so wait for it (up to ~30s). */
+export async function waitForBackend(timeoutMs = 30000): Promise<void> {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    try {
+      const r = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(1500) });
+      if (r.ok) return;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((res) => setTimeout(res, 300));
+  }
+  throw new Error("The Cleave engine did not start. Try reopening the app.");
+}
 
 export async function getAnalysis(): Promise<Analysis> {
+  if (DESKTOP) {
+    // Never show the sample account in the desktop app: it would read as the user's own
+    // result. Wait for the engine and surface a real error instead.
+    await waitForBackend();
+    const r = await api("/analysis");
+    if (!r.ok) throw new Error(`analysis failed (${r.status})`);
+    return mapLive(await r.json());
+  }
   try {
-    const r = await fetch(`${API_BASE}/analysis`, { signal: AbortSignal.timeout(3000) });
+    const r = await api("/analysis", { signal: AbortSignal.timeout(3000) });
     if (r.ok) return mapLive(await r.json());
   } catch {
     /* backend not running (e.g. the landing's live-demo peek) — show the sample account */
@@ -94,12 +125,19 @@ export interface Connection {
   account: string | null;
   mode: string | null;
   paths_found: number | null;
+  last_scan: { account: string; mode: string; scanned_at: string } | null;
+}
+
+export async function getConnection(): Promise<Connection> {
+  const r = await api("/connection");
+  if (!r.ok) throw new Error(`connection check failed (${r.status})`);
+  return r.json();
 }
 
 /** Connect to an AWS account and scan it. mode "login" = the machine's AWS creds; "role" =
  *  assume the read-only role. Read-only, local-first. Returns when the scan completes. */
 export async function connect(mode: "login" | "role", roleArn?: string): Promise<Connection> {
-  const r = await fetch(`${API_BASE}/scan`, {
+  const r = await api("/scan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode, role_arn: roleArn ?? null }),

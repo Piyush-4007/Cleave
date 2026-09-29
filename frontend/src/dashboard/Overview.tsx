@@ -3,7 +3,8 @@ import { ArrowRight, Scissors, CheckCircle } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
 
 export function Overview() {
-  const { data, loading } = useAnalysis();
+  const { data, loading, error } = useAnalysis();
+  if (error) return null; // the shell's ErrorBanner explains it
   const nav = useNavigate();
   if (loading || !data) return <div className="mono p-10 text-[13px] text-[color:var(--muted)]">Loading…</div>;
   const s = data.summary;

@@ -1,8 +1,11 @@
-import { NavLink, Outlet, Link } from "react-router-dom";
+import { useEffect } from "react";
+import { NavLink, Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { Mark } from "../components/Logo";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { AnalysisProvider, useAnalysis } from "./useAnalysis";
+import { getConnection, waitForBackend } from "./api";
+import { DESKTOP } from "../desktop";
 
 const TABS = [
   ["Overview", "/dashboard"],
@@ -23,6 +26,37 @@ function AccountBadge() {
         <ShieldCheck size={13} weight="fill" /> read-only
       </span>
     </Link>
+  );
+}
+
+/** Desktop, first launch: nothing scanned yet, so open on Connect rather than an empty
+ *  overview. A saved scan (last_scan) opens straight on its result. */
+function DesktopFirstRun() {
+  const nav = useNavigate();
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (!DESKTOP || pathname.endsWith("/connect")) return;
+    waitForBackend()
+      .then(getConnection)
+      .then((c) => {
+        if (!c.connected && !c.last_scan) nav("/dashboard/connect", { replace: true });
+      })
+      .catch(() => { /* ErrorBanner reports it via the analysis load */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
+function ErrorBanner() {
+  const { error, reload } = useAnalysis();
+  if (!error) return null;
+  return (
+    <div className="mx-5 mt-5 flex items-center justify-between gap-4 rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] px-4 py-3 text-[13.5px] sm:mx-7">
+      <span className="text-[color:var(--text-2)]">{error.replace(/^Error: /, "")}</span>
+      <button onClick={reload} className="mono text-[12px] uppercase tracking-[0.12em] text-[color:var(--accent)]">
+        Retry
+      </button>
+    </div>
   );
 }
 
@@ -71,6 +105,8 @@ export function DashboardShell() {
             ))}
           </nav>
         </header>
+        <DesktopFirstRun />
+        <ErrorBanner />
         <Outlet />
       </div>
     </AnalysisProvider>

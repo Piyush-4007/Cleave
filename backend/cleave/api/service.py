@@ -125,6 +125,9 @@ def connection_status() -> dict:
         "mode": _STATE["mode"],
         "paths_found": (_STATE["analysis"] or {}).get("summary", {}).get("paths_found")
         if _STATE["analysis"] else None,
+        # The scan saved on disk (account, mode, scanned_at), if any — lets the desktop app
+        # open straight on the last result instead of the connect screen.
+        "last_scan": _meta_from_raw(settings.cleave_output_dir) or None,
     }
 
 

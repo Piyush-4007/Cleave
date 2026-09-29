@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- App icon: the 6c 'blade bow' mark in the Signal identity (dark default theme).
+       Strokes thickened vs cleave-mark.svg so they survive small icon sizes. -->
+  <rect width="64" height="64" rx="14" fill="#0B0B0B"/>
+  <g transform="translate(6.4 6.4) scale(.8)" fill="#F5F5F2">
+    <path d="M17 32C16 19 26 9 43 4 45 5 46 7 45 9 43 8 42 8 41 9 29 14 22 22 21 32z"/>
+    <path d="M19.5 20 11 14 22 16.5z"/>
+    <path d="M27 12 23 4 30 9.5z"/>
+    <path d="M20 27 14 25 20.5 23.5z"/>
+    <g transform="translate(0 68) scale(1 -1)">
+      <path d="M17 32C16 19 26 9 43 4 45 5 46 7 45 9 43 8 42 8 41 9 29 14 22 22 21 32z"/>
+      <path d="M19.5 20 11 14 22 16.5z"/>
+      <path d="M27 12 23 4 30 9.5z"/>
+      <path d="M20 27 14 25 20.5 23.5z"/>
+    </g>
+    <path d="M44 8 53 34 44 60" fill="none" stroke="#F5F5F2" stroke-width="1.2"/>
+    <path d="M15 29h7v10h-7z"/>
+    <path d="M6 34H57" stroke="#F5F5F2" stroke-width="2"/>
+    <path d="M1 34 11 28.5 8.5 34 11 39.5z"/>
+    <path d="M53 34 62 26 58.5 34 62 42zM47.5 34 56 27.5 53 34 56 40.5z" fill="#FF6A1A"/>
+  </g>
+</svg>

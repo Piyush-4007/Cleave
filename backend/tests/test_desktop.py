@@ -68,6 +68,7 @@ def test_scan_is_persisted_and_reloaded_after_restart(monkeypatch, tmp_path, fre
     assert status["connected"] and status["paths_found"] == 5
     assert (tmp_path / "fixture.json").exists()
     assert json.loads((tmp_path / "_meta.json").read_text())["account"] == "111122223333"
+    assert status["last_scan"]["account"] == "111122223333"
 
     # "restart": wipe memory, rebuild from disk only
     service._STATE.update(graph=None, analysis=None, source=None, account=None)
@@ -91,3 +92,4 @@ def test_memory_store_never_touches_neo4j(monkeypatch, tmp_path):
     monkeypatch.setattr(builtins, "__import__", guard)
     g, source = service.build_graph()
     assert source == "raw"
+    assert service.connection_status()["last_scan"] is None  # nothing saved yet
