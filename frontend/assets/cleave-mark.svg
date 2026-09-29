@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor" role="img" aria-label="Cleave">
+  <title>Cleave</title>
+  <!-- upper bladed bow limb -->
+  <path d="M17 32C16 19 26 9 43 4 45 5 46 7 45 9 43 8 42 8 41 9 29 14 22 22 21 32z"/>
+  <path d="M19.5 20 11 14 22 16.5z"/>
+  <path d="M27 12 23 4 30 9.5z"/>
+  <path d="M20 27 14 25 20.5 23.5z"/>
+  <!-- lower limb (mirror of the upper) -->
+  <g transform="translate(0 68) scale(1 -1)">
+    <path d="M17 32C16 19 26 9 43 4 45 5 46 7 45 9 43 8 42 8 41 9 29 14 22 22 21 32z"/>
+    <path d="M19.5 20 11 14 22 16.5z"/>
+    <path d="M27 12 23 4 30 9.5z"/>
+    <path d="M20 27 14 25 20.5 23.5z"/>
+  </g>
+  <!-- bowstring -->
+  <path d="M44 8 53 34 44 60" fill="none" stroke="currentColor" stroke-width=".7"/>
+  <!-- ornate diamond grip + sighting ring -->
+  <path d="M15 29h7v10h-7z"/>
+  <path d="M18.5 25.5 22 34 18.5 42.5 15 34z" fill="none" stroke="currentColor" stroke-width=".8"/>
+  <path d="M26 18V50" stroke="currentColor" stroke-width=".4"/>
+  <circle cx="26" cy="34" r="3.2" fill="none" stroke="currentColor" stroke-width=".5"/>
+  <!-- arrow: shaft, nock, barbed heads, fletching -->
+  <path d="M6 34H57" stroke="currentColor" stroke-width="1.4"/>
+  <path d="M1 34 11 28.5 8.5 34 11 39.5z"/>
+  <path d="M53 34 62 26 58.5 34 62 42zM47.5 34 56 27.5 53 34 56 40.5z"/>
+  <path d="M50 34 54 22M50 34 54 46" stroke="currentColor" stroke-width=".5"/>
+</svg>

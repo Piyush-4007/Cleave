@@ -6,3 +6,8 @@ data/raw/
 *.pem
 .venv/
 node_modules/
+
+# frontend build output
+frontend/dist/
+dist/
+*.tsbuildinfo
