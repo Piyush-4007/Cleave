@@ -6,8 +6,8 @@ from .base import collector, paginate
 
 @collector("ec2")
 def collect(ctx) -> list[dict]:
-    out: list[dict] = []
-    for region in ctx.regions():
+    def in_region(region: str) -> list[dict]:
+        out: list[dict] = []
         try:
             ec2 = ctx.client("ec2", region)
             for res in paginate(ec2, "describe_instances", "Reservations"):
@@ -28,5 +28,7 @@ def collect(ctx) -> list[dict]:
                         "ImageId": i.get("ImageId"),
                     })
         except Exception:  # noqa: BLE001 - skip disabled/failed regions, keep going
-            continue
-    return out
+            pass  # keep what this region yielded before the failure
+        return out
+
+    return ctx.per_region(in_region)

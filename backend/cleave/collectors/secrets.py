@@ -7,8 +7,8 @@ from ._util import as_doc
 
 @collector("secrets")
 def collect(ctx) -> list[dict]:
-    out: list[dict] = []
-    for region in ctx.regions():
+    def in_region(region: str) -> list[dict]:
+        out: list[dict] = []
         # Secrets Manager
         try:
             sm = ctx.client("secretsmanager", region)
@@ -35,4 +35,6 @@ def collect(ctx) -> list[dict]:
                 })
         except Exception:  # noqa: BLE001
             pass
-    return out
+        return out
+
+    return ctx.per_region(in_region)

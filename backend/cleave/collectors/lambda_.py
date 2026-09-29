@@ -5,8 +5,8 @@ from .base import collector, paginate
 
 @collector("lambda")
 def collect(ctx) -> list[dict]:
-    out: list[dict] = []
-    for region in ctx.regions():
+    def in_region(region: str) -> list[dict]:
+        out: list[dict] = []
         try:
             lam = ctx.client("lambda", region)
             for fn in paginate(lam, "list_functions", "Functions"):
@@ -24,5 +24,7 @@ def collect(ctx) -> list[dict]:
                     "EnvVars": (fn.get("Environment") or {}).get("Variables", {}),
                 })
         except Exception:  # noqa: BLE001
-            continue
-    return out
+            pass  # keep what this region yielded before the failure
+        return out
+
+    return ctx.per_region(in_region)

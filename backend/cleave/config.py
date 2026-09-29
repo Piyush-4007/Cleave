@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # default: the user opts in by adding s3:GetObject to the role AND setting this true.
     # See docs/opt-in-credscan.md.
     cleave_credscan: bool = False
+    # Scan concurrency: threads per fan-out (regions, IAM principals, S3 buckets). The scan
+    # is network-bound, so this mostly trades wall-clock for API rate. 1 = fully serial.
+    cleave_scan_workers: int = 16
 
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"

@@ -5,8 +5,8 @@ from .base import collector, paginate
 
 @collector("rds")
 def collect(ctx) -> list[dict]:
-    out: list[dict] = []
-    for region in ctx.regions():
+    def in_region(region: str) -> list[dict]:
+        out: list[dict] = []
         try:
             rds = ctx.client("rds", region)
             for db in paginate(rds, "describe_db_instances", "DBInstances"):
@@ -22,5 +22,7 @@ def collect(ctx) -> list[dict]:
                     "Tags": {t["Key"]: t["Value"] for t in db.get("TagList", [])},
                 })
         except Exception:  # noqa: BLE001
-            continue
-    return out
+            pass  # keep what this region yielded before the failure
+        return out
+
+    return ctx.per_region(in_region)

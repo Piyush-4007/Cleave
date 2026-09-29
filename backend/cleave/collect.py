@@ -8,12 +8,39 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import time
+from concurrent.futures import ThreadPoolExecutor
 from .config import settings
 from .aws_session import build_session
 from .collectors import base
 from . import collectors as _collectors  # noqa: F401 - imports register the collectors
 
 log = logging.getLogger("cleave.collect")
+
+
+def run_collectors(ctx: base.Context) -> dict[str, list]:
+    """Run every registered collector concurrently, each isolated by `base.safe`.
+
+    Collectors are independent reads of different services, so they overlap; inside each,
+    regions / principals fan out too (Context.per_region, Context.map). The result dict is
+    in registration order whatever finishes first, so output is deterministic.
+    """
+    # Resolve regions once up front rather than raced by eight collectors. If it is denied,
+    # carry on: the regional collectors each fail inside `safe`, IAM/S3 still run — the
+    # same outcome as the serial scan.
+    base.safe("regions", lambda: ctx.regions())
+
+    def one(item):
+        name, fn = item
+        t = time.perf_counter()
+        records = base.safe(name, lambda: fn(ctx))
+        log.info("  %-12s %4d records  %5.1fs", name, len(records), time.perf_counter() - t)
+        return name, records
+
+    items = list(base.COLLECTORS.items())
+    workers = len(items) if ctx.workers > 1 else 1
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        return dict(pool.map(one, items))
 
 
 def collect_records(session, credscan: bool = False) -> dict:
@@ -23,12 +50,9 @@ def collect_records(session, credscan: bool = False) -> dict:
     """
     ident = session.client("sts").get_caller_identity()
     log.info("scanning as %s", ident["Arn"])
-    ctx = base.Context(session)
-
-    collected: dict[str, list] = {}
-    for name, fn in base.COLLECTORS.items():
-        collected[name] = base.safe(name, lambda fn=fn: fn(ctx))
-        log.info("  %-12s %d records", name, len(collected[name]))
+    t = time.perf_counter()
+    collected = run_collectors(base.Context(session))
+    log.info("collected in %.1fs", time.perf_counter() - t)
 
     findings: list = []
     if credscan:
@@ -59,14 +83,13 @@ def run() -> dict[str, int]:
     outdir = pathlib.Path(settings.cleave_output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    t = time.perf_counter()
+    collected = run_collectors(ctx)
+    log.info("collected in %.1fs", time.perf_counter() - t)
     summary: dict[str, int] = {}
-    collected: dict[str, list] = {}
-    for name, fn in base.COLLECTORS.items():
-        records = base.safe(name, lambda fn=fn: fn(ctx))
-        collected[name] = records
+    for name, records in collected.items():
         (outdir / f"{name}.json").write_text(json.dumps(records, indent=2, default=str))
         summary[name] = len(records)
-        log.info("  %-12s %d records", name, len(records))
 
     # Credential-in-content scan. OFF by default: it reads S3 object bodies (s3:GetObject),
     # which the default read-only role does not grant, so running it unconditionally would

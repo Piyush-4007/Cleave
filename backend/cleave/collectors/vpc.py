@@ -6,8 +6,8 @@ from .base import collector, paginate
 
 @collector("vpc")
 def collect(ctx) -> list[dict]:
-    out: list[dict] = []
-    for region in ctx.regions():
+    def in_region(region: str) -> list[dict]:
+        out: list[dict] = []
         try:
             ec2 = ctx.client("ec2", region)
 
@@ -62,5 +62,7 @@ def collect(ctx) -> list[dict]:
                     "AttachedVpcs": [a.get("VpcId") for a in igw.get("Attachments", [])],
                 })
         except Exception:  # noqa: BLE001
-            continue
-    return out
+            pass  # keep what this region yielded before the failure
+        return out
+
+    return ctx.per_region(in_region)

@@ -13,8 +13,12 @@ def collect(ctx) -> list[dict]:
     iam = ctx.client("iam")
     out: list[dict] = []
 
+    # Listing is one paginated call per kind; the per-principal detail calls (policies,
+    # groups, keys) are where the time goes, so those fan out across ctx.map. Order is
+    # preserved, so the output matches a serial scan record for record.
+
     # --- Users ---
-    for u in paginate(iam, "list_users", "Users"):
+    def user(u: dict) -> dict:
         name = u["UserName"]
         attached = [p["PolicyArn"] for p in paginate(
             iam, "list_attached_user_policies", "AttachedPolicies", UserName=name)]
@@ -34,43 +38,46 @@ def collect(ctx) -> list[dict]:
                 "LastUsedService": last.get("ServiceName"),
                 "LastUsedRegion": last.get("Region"),
             })
-        out.append({
+        return {
             "_type": "IamUser", "_id": u["Arn"], "UserName": name, "Arn": u["Arn"],
             "UserId": u["UserId"], "CreateDate": u.get("CreateDate"),
             "AttachedPolicies": attached, "InlinePolicies": inline,
             "Groups": groups, "AccessKeys": keys,
-        })
+        }
+    out += ctx.map(user, paginate(iam, "list_users", "Users"))
 
     # --- Roles ---
-    for r in paginate(iam, "list_roles", "Roles"):
+    def role(r: dict) -> dict:
         name = r["RoleName"]
         attached = [p["PolicyArn"] for p in paginate(
             iam, "list_attached_role_policies", "AttachedPolicies", RoleName=name)]
         inline = {}
         for pn in paginate(iam, "list_role_policies", "PolicyNames", RoleName=name):
             inline[pn] = as_doc(iam.get_role_policy(RoleName=name, PolicyName=pn)["PolicyDocument"])
-        out.append({
+        return {
             "_type": "IamRole", "_id": r["Arn"], "RoleName": name, "Arn": r["Arn"],
             "RoleId": r["RoleId"], "CreateDate": r.get("CreateDate"),
             "TrustPolicy": as_doc(r.get("AssumeRolePolicyDocument")),
             "AttachedPolicies": attached, "InlinePolicies": inline,
-        })
+        }
+    out += ctx.map(role, paginate(iam, "list_roles", "Roles"))
 
     # --- Groups ---
-    for g in paginate(iam, "list_groups", "Groups"):
+    def group(g: dict) -> dict:
         name = g["GroupName"]
         attached = [p["PolicyArn"] for p in paginate(
             iam, "list_attached_group_policies", "AttachedPolicies", GroupName=name)]
         inline = {}
         for pn in paginate(iam, "list_group_policies", "PolicyNames", GroupName=name):
             inline[pn] = as_doc(iam.get_group_policy(GroupName=name, PolicyName=pn)["PolicyDocument"])
-        out.append({
+        return {
             "_type": "IamGroup", "_id": g["Arn"], "GroupName": name, "Arn": g["Arn"],
             "AttachedPolicies": attached, "InlinePolicies": inline,
-        })
+        }
+    out += ctx.map(group, paginate(iam, "list_groups", "Groups"))
 
     # --- Customer-managed policies (with default-version document) ---
-    for p in paginate(iam, "list_policies", "Policies", Scope="Local"):
+    def local_policy(p: dict) -> dict:
         doc = None
         try:
             doc = as_doc(iam.get_policy_version(
@@ -78,11 +85,12 @@ def collect(ctx) -> list[dict]:
             )["PolicyVersion"]["Document"])
         except Exception:  # noqa: BLE001
             pass
-        out.append({
+        return {
             "_type": "IamPolicy", "_id": p["Arn"], "PolicyName": p["PolicyName"],
             "Arn": p["Arn"], "DefaultVersionId": p.get("DefaultVersionId"),
             "AttachmentCount": p.get("AttachmentCount"), "Document": doc,
-        })
+        }
+    out += ctx.map(local_policy, paginate(iam, "list_policies", "Policies", Scope="Local"))
 
     # --- Attached AWS-managed policies (documents, not just names) ---
     # Most principals on a real account carry AWS-managed policies (IAMFullAccess,
@@ -94,21 +102,22 @@ def collect(ctx) -> list[dict]:
     collected = {r["_id"] for r in out if r["_type"] == "IamPolicy"}
     referenced = {arn for r in out if r["_type"] in ("IamUser", "IamRole", "IamGroup")
                   for arn in r.get("AttachedPolicies", [])}
-    for arn in sorted(referenced - collected):
+    def managed_policy(arn: str) -> dict | None:
         try:
             meta = iam.get_policy(PolicyArn=arn)["Policy"]
             doc = as_doc(iam.get_policy_version(
                 PolicyArn=arn, VersionId=meta["DefaultVersionId"]
             )["PolicyVersion"]["Document"])
         except Exception:  # noqa: BLE001 - one unreadable policy must not sink the scan
-            continue
-        out.append({
+            return None
+        return {
             "_type": "IamPolicy", "_id": arn, "PolicyName": meta.get("PolicyName"),
             "Arn": arn, "DefaultVersionId": meta.get("DefaultVersionId"),
             "AttachmentCount": meta.get("AttachmentCount"),
             "ManagedBy": "AWS" if arn.startswith("arn:aws:iam::aws:policy/") else "Customer",
             "Document": doc,
-        })
+        }
+    out += [r for r in ctx.map(managed_policy, sorted(referenced - collected)) if r]
 
     # --- Instance profiles (instance -> role bridge; abused in Phase 0 scenario 2) ---
     for ip in paginate(iam, "list_instance_profiles", "InstanceProfiles"):

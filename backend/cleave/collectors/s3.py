@@ -15,8 +15,7 @@ def _try(fn):
 @collector("s3")
 def collect(ctx) -> list[dict]:
     s3 = ctx.client("s3")
-    out: list[dict] = []
-    for b in s3.list_buckets().get("Buckets", []):
+    def bucket(b: dict) -> dict:
         name = b["Name"]
         loc = _try(lambda: s3.get_bucket_location(Bucket=name).get("LocationConstraint")) or "us-east-1"
         policy = _try(lambda: as_doc(s3.get_bucket_policy(Bucket=name)["Policy"]))
@@ -29,10 +28,12 @@ def collect(ctx) -> list[dict]:
         # buckets raise NoSuchTagSet, which _try swallows to {}.
         tagset = _try(lambda: s3.get_bucket_tagging(Bucket=name).get("TagSet")) or []
         tags = {t["Key"]: t["Value"] for t in tagset}
-        out.append({
+        return {
             "_type": "S3Bucket", "_id": f"arn:aws:s3:::{name}", "Name": name,
             "Region": loc, "CreationDate": b.get("CreationDate"),
             "Policy": policy, "PublicAccessBlock": pab, "Acl": acl, "Encryption": enc,
             "Tags": tags,
-        })
-    return out
+        }
+
+    # Six bucket-level calls per bucket; buckets are independent, so fan out.
+    return ctx.map(bucket, s3.list_buckets().get("Buckets", []))

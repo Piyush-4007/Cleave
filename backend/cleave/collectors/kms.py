@@ -6,8 +6,8 @@ from ._util import as_doc
 
 @collector("kms")
 def collect(ctx) -> list[dict]:
-    out: list[dict] = []
-    for region in ctx.regions():
+    def in_region(region: str) -> list[dict]:
+        out: list[dict] = []
         try:
             kms = ctx.client("kms", region)
             for k in paginate(kms, "list_keys", "Keys"):
@@ -29,5 +29,7 @@ def collect(ctx) -> list[dict]:
                     "KeyManager": meta.get("KeyManager"), "Policy": policy,
                 })
         except Exception:  # noqa: BLE001
-            continue
-    return out
+            pass  # keep what this region yielded before the failure
+        return out
+
+    return ctx.per_region(in_region)
