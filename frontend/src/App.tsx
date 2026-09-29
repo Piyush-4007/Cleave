@@ -1,31 +1,25 @@
-import { Nav } from "./components/Nav";
-import { Hero } from "./sections/Hero";
-import { Stats } from "./sections/Stats";
-import { Problem } from "./sections/Problem";
-import { PathShowcase } from "./sections/PathShowcase";
-import { Method } from "./sections/Method";
-import { WhatItCatches } from "./sections/WhatItCatches";
-import { Trust } from "./sections/Trust";
-import { Compare } from "./sections/Compare";
-import { GetStarted } from "./sections/GetStarted";
-import { Footer } from "./sections/Footer";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Landing } from "./Landing";
+import { DashboardShell } from "./dashboard/Shell";
+import { Overview } from "./dashboard/Overview";
+import { PathViewer } from "./dashboard/PathViewer";
+import { Remediation } from "./dashboard/Remediation";
+import { Findings, History } from "./dashboard/Simple";
 
 export default function App() {
   return (
-    <>
-      <Nav />
-      <main>
-        <Hero />
-        <Stats />
-        <Problem />
-        <PathShowcase />
-        <Method />
-        <WhatItCatches />
-        <Trust />
-        <Compare />
-        <GetStarted />
-      </main>
-      <Footer />
-    </>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/dashboard" element={<DashboardShell />}>
+          <Route index element={<Overview />} />
+          <Route path="paths" element={<PathViewer />} />
+          <Route path="paths/:id" element={<PathViewer />} />
+          <Route path="findings" element={<Findings />} />
+          <Route path="remediation" element={<Remediation />} />
+          <Route path="history" element={<History />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
