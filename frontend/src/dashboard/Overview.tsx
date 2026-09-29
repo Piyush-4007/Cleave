@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Scissors } from "@phosphor-icons/react";
+import { ArrowRight, Scissors, CheckCircle } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
 
 export function Overview() {
@@ -7,6 +7,23 @@ export function Overview() {
   const nav = useNavigate();
   if (loading || !data) return <div className="mono p-10 text-[13px] text-[color:var(--muted)]">Loading…</div>;
   const s = data.summary;
+
+  if (data.paths.length === 0) {
+    return (
+      <div className="mx-auto max-w-[720px] px-6 py-16 text-center sm:px-8">
+        <CheckCircle size={40} className="accent mx-auto" weight="fill" />
+        <h1 className="display mt-5 text-[28px] leading-tight sm:text-[34px]">No attack paths found.</h1>
+        <p className="mx-auto mt-3 max-w-[46ch] text-[15px] leading-relaxed text-[color:var(--muted)]">
+          {s.resources.toLocaleString()} resources scanned, and nothing reachable chains to
+          admin or to sensitive data. Either the account is clean, or connect a different one.
+        </p>
+        <button onClick={() => nav("/dashboard/connect")}
+          className="mono mt-8 inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-4 py-2 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--accent)]">
+          connect an account <ArrowRight size={13} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-10 sm:px-8">

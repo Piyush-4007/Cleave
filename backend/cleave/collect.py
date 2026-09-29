@@ -13,6 +13,39 @@ from .aws_session import build_session
 from .collectors import base
 from . import collectors as _collectors  # noqa: F401 - imports register the collectors
 
+log = logging.getLogger("cleave.collect")
+
+
+def collect_records(session, credscan: bool = False) -> dict:
+    """Run every collector against a session and return everything in memory (no files
+    written). This is what the API's on-demand scan uses; the CLI `run()` wraps it and
+    also writes the raw JSON dump. Returns account id, flat record list, and cred findings.
+    """
+    ident = session.client("sts").get_caller_identity()
+    log.info("scanning as %s", ident["Arn"])
+    ctx = base.Context(session)
+
+    collected: dict[str, list] = {}
+    for name, fn in base.COLLECTORS.items():
+        collected[name] = base.safe(name, lambda fn=fn: fn(ctx))
+        log.info("  %-12s %d records", name, len(collected[name]))
+
+    findings: list = []
+    if credscan:
+        from . import credscan as _cs
+        owners = _cs.access_key_owners(collected.get("iam", []))
+        findings = base.safe("credscan",
+                             lambda: _cs.scan_buckets(session, collected.get("s3", []), owners))
+
+    records = [r for recs in collected.values() for r in recs]
+    return {
+        "account": ident.get("Account", ""),
+        "arn": ident.get("Arn", ""),
+        "records": records,
+        "cred_findings": findings,
+        "counts": {name: len(recs) for name, recs in collected.items()},
+    }
+
 
 def run() -> dict[str, int]:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")

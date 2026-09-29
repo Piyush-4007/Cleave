@@ -17,7 +17,8 @@ from ..paths.graphview import graph_from_neo4j, graph_from_records
 log = logging.getLogger("cleave.api")
 
 _LOCK = threading.Lock()
-_STATE: dict = {"graph": None, "analysis": None, "source": None}
+_STATE: dict = {"graph": None, "analysis": None, "source": None, "account": None,
+                "connected": False, "mode": None, "scanning": False}
 
 
 def _records_from_raw(raw_dir: str):
@@ -63,9 +64,53 @@ def get_state(refresh: bool = False) -> dict:
         return _STATE
 
 
+def run_scan(mode: str, role_arn: str | None = None) -> dict:
+    """Scan an AWS account on demand and make its analysis the current one.
+
+    mode "login" uses the machine's ambient AWS credentials; mode "role" assumes the
+    read-only role at `role_arn`. Both are local-first: no credential leaves the machine,
+    and Cleave only ever makes read calls. Returns the connection status.
+    """
+    from ..aws_session import build_session_for
+    from ..collect import collect_records
+
+    with _LOCK:
+        _STATE["scanning"] = True
+    try:
+        session = build_session_for(role_arn if mode == "role" else None)
+        scan = collect_records(session, credscan=settings.cleave_credscan)
+        g = graph_from_records(scan["records"], scan["cred_findings"])
+        analysis = analyze(g)
+        with _LOCK:
+            _STATE.update(graph=g, analysis=analysis, source="scan",
+                          account=scan["account"], connected=True, mode=mode, scanning=False)
+        log.info("scan (%s) of %s: %d paths", mode, scan["account"],
+                 analysis["summary"]["paths_found"])
+    except Exception:
+        with _LOCK:
+            _STATE["scanning"] = False
+        raise
+    return connection_status()
+
+
+def connection_status() -> dict:
+    return {
+        "connected": _STATE["connected"],
+        "scanning": _STATE["scanning"],
+        "account": _STATE["account"],
+        "mode": _STATE["mode"],
+        "paths_found": (_STATE["analysis"] or {}).get("summary", {}).get("paths_found")
+        if _STATE["analysis"] else None,
+    }
+
+
 def get_analysis(refresh: bool = False) -> dict:
     st = get_state(refresh)
-    return {"source": st["source"], **st["analysis"]}
+    account = st.get("account")
+    out = {"source": st["source"], **st["analysis"]}
+    if account:
+        out["account"] = account
+    return out
 
 
 def get_path(path_id: str) -> dict | None:

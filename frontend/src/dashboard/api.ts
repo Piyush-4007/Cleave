@@ -80,16 +80,35 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 export async function getAnalysis(): Promise<Analysis> {
   try {
-    const r = await fetch(`${API_BASE}/analysis`, { signal: AbortSignal.timeout(2500) });
-    if (r.ok) {
-      const live = await r.json();
-      // A scanned-but-clean account has no paths; the mock is more useful for the demo.
-      if (live?.paths?.length) return mapLive(live);
-    }
+    const r = await fetch(`${API_BASE}/analysis`, { signal: AbortSignal.timeout(3000) });
+    if (r.ok) return mapLive(await r.json());
   } catch {
-    /* backend not running — fall back to the mock */
+    /* backend not running (e.g. the landing's live-demo peek) — show the sample account */
   }
   return MOCK;
+}
+
+export interface Connection {
+  connected: boolean;
+  scanning: boolean;
+  account: string | null;
+  mode: string | null;
+  paths_found: number | null;
+}
+
+/** Connect to an AWS account and scan it. mode "login" = the machine's AWS creds; "role" =
+ *  assume the read-only role. Read-only, local-first. Returns when the scan completes. */
+export async function connect(mode: "login" | "role", roleArn?: string): Promise<Connection> {
+  const r = await fetch(`${API_BASE}/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, role_arn: roleArn ?? null }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || "scan failed");
+  }
+  return r.json();
 }
 
 // Map the live /analysis response onto the UI types. The backend enriches each path with

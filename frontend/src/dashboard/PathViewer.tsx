@@ -28,6 +28,8 @@ export function PathViewer() {
 
   if (loading || !data) return <Loading />;
   const paths = data.paths;
+  if (paths.length === 0)
+    return <div className="mono p-10 text-[13px] text-[color:var(--muted)]">No attack paths in this scan.</div>;
   const path = paths.find((p) => p.id === id) ?? paths[0];
 
   return (

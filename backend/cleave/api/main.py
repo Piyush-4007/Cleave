@@ -7,6 +7,7 @@ the API and `python -m cleave.paths.run` can never disagree.
 from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from . import service
 
 app = FastAPI(title="Cleave", version="0.5.0",
@@ -17,14 +18,38 @@ app = FastAPI(title="Cleave", version="0.5.0",
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+class ConnectRequest(BaseModel):
+    mode: str = "login"          # "login" (ambient creds) | "role" (assume role_arn)
+    role_arn: str | None = None
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "cleave", "phase": 5}
+
+
+@app.get("/connection")
+def connection() -> dict:
+    """Whether an account is connected, and which mode."""
+    return service.connection_status()
+
+
+@app.post("/scan")
+def scan(req: ConnectRequest) -> dict:
+    """Connect to an AWS account and scan it. `mode=login` uses the machine's ambient AWS
+    credentials; `mode=role` assumes the read-only role at `role_arn`. Read-only either way,
+    and nothing leaves the machine."""
+    if req.mode == "role" and not req.role_arn:
+        raise HTTPException(status_code=400, detail="role mode needs a role_arn")
+    try:
+        return service.run_scan(req.mode, req.role_arn)
+    except Exception as e:  # noqa: BLE001 - surface a readable message to the UI
+        raise HTTPException(status_code=502, detail=f"scan failed: {type(e).__name__}: {e}")
 
 
 @app.get("/analysis")
