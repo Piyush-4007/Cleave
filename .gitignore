@@ -11,3 +11,10 @@ node_modules/
 frontend/dist/
 dist/
 *.tsbuildinfo
+
+# desktop build outputs
+desktop/.venv/
+desktop/build/
+desktop/src-tauri/resources/backend/
+desktop/src-tauri/target/
+desktop/node_modules/

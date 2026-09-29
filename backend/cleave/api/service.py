@@ -21,6 +21,15 @@ _STATE: dict = {"graph": None, "analysis": None, "source": None, "account": None
                 "connected": False, "mode": None, "scanning": False}
 
 
+def _meta_from_raw(raw_dir: str) -> dict:
+    """Who the dump on disk belongs to (written by write_raw), or {} for an older dump."""
+    f = pathlib.Path(raw_dir) / "_meta.json"
+    try:
+        return json.loads(f.read_text()) if f.exists() else {}
+    except ValueError:
+        return {}
+
+
 def _records_from_raw(raw_dir: str):
     raw = pathlib.Path(raw_dir)
     records = []
@@ -36,7 +45,11 @@ def _records_from_raw(raw_dir: str):
 
 
 def build_graph():
-    """Neo4j if reachable, else the raw dump. Returns (graph, source_label)."""
+    """Neo4j if configured and reachable, else the raw dump. Returns (graph, source_label).
+    The desktop app sets CLEAVE_GRAPH_STORE=memory and never touches Neo4j."""
+    if settings.cleave_graph_store == "memory":
+        records, creds = _records_from_raw(settings.cleave_output_dir)
+        return graph_from_records(records, creds), "raw"
     try:
         from neo4j import GraphDatabase
         driver = GraphDatabase.driver(
@@ -59,6 +72,8 @@ def get_state(refresh: bool = False) -> dict:
         if refresh or _STATE["analysis"] is None:
             g, source = build_graph()
             _STATE.update(graph=g, analysis=analyze(g), source=source)
+            if source == "raw" and not _STATE["account"]:
+                _STATE["account"] = _meta_from_raw(settings.cleave_output_dir).get("account")
             log.info("analysis built from %s: %d paths", source,
                      _STATE["analysis"]["summary"]["paths_found"])
         return _STATE
@@ -71,14 +86,23 @@ def run_scan(mode: str, role_arn: str | None = None) -> dict:
     read-only role at `role_arn`. Both are local-first: no credential leaves the machine,
     and Cleave only ever makes read calls. Returns the connection status.
     """
-    from ..aws_session import build_session_for
-    from ..collect import collect_records
+    from datetime import datetime, timezone
+    from .. import aws_session, collect
 
     with _LOCK:
         _STATE["scanning"] = True
     try:
-        session = build_session_for(role_arn if mode == "role" else None)
-        scan = collect_records(session, credscan=settings.cleave_credscan)
+        session = aws_session.build_session_for(role_arn if mode == "role" else None)
+        scan = collect.collect_records(session, credscan=settings.cleave_credscan)
+        # Persist it, so a restart (or the desktop app reopening) shows this scan again.
+        # A write failure costs persistence, never the scan result.
+        try:
+            collect.write_raw(pathlib.Path(settings.cleave_output_dir), scan["by_collector"],
+                              scan["cred_findings"], meta={
+                                  "account": scan["account"], "arn": scan["arn"], "mode": mode,
+                                  "scanned_at": datetime.now(timezone.utc).isoformat()})
+        except OSError as e:
+            log.warning("could not persist scan to %s: %s", settings.cleave_output_dir, e)
         g = graph_from_records(scan["records"], scan["cred_findings"])
         analysis = analyze(g)
         with _LOCK:

@@ -1,0 +1,16 @@
+# Desktop backend (PyInstaller sidecar). Deliberately smaller than backend/requirements.txt:
+# no Neo4j / Postgres / Redis / Celery — the desktop app is in-memory + a raw dump on disk.
+# boto3 is newer than the compose pin because 1.43 + botocore[crt] reads `aws login`
+# (login_session) credentials natively, so "Connect with my AWS login" needs no bridge.
+boto3==1.43.105
+botocore[crt]==1.43.105
+awscrt==0.36.0
+fastapi==0.142.0
+uvicorn==0.54.0
+networkx==3.6.1
+pydantic==2.13.5
+pydantic-settings==2.15.0
+# build + test only
+pyinstaller==6.22.3
+pytest
+httpx

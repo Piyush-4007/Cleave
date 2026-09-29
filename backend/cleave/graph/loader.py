@@ -11,7 +11,6 @@ import json
 import logging
 import pathlib
 from typing import Iterable
-from neo4j import GraphDatabase
 
 log = logging.getLogger("cleave.graph")
 
@@ -62,6 +61,10 @@ def _edge(frm: str, to: str, rel: str, reason: str, evidence: str,
 
 class GraphLoader:
     def __init__(self, uri: str, user: str, password: str):
+        # Imported here, not at module top: the pure transforms below (structural edges,
+        # stubs) are used by the in-memory analysis, which must run without the neo4j
+        # package — the desktop build does not ship it.
+        from neo4j import GraphDatabase
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
 
     def close(self):

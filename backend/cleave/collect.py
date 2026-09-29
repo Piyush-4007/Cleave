@@ -9,6 +9,7 @@ import json
 import logging
 import pathlib
 import time
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from .config import settings
 from .aws_session import build_session
@@ -43,6 +44,23 @@ def run_collectors(ctx: base.Context) -> dict[str, list]:
         return dict(pool.map(one, items))
 
 
+def write_raw(outdir: pathlib.Path, collected: dict[str, list], findings: list,
+              meta: dict | None = None) -> dict[str, int]:
+    """Write a scan as the raw dump: one JSON per collector, plus credential findings, a
+    summary, and (API/desktop scans) who was scanned. Returns the summary counts."""
+    outdir.mkdir(parents=True, exist_ok=True)
+    summary: dict[str, int] = {}
+    for name, records in collected.items():
+        (outdir / f"{name}.json").write_text(json.dumps(records, indent=2, default=str))
+        summary[name] = len(records)
+    (outdir / "_credentials.json").write_text(json.dumps(findings, indent=2, default=str))
+    summary["credscan_findings"] = len(findings)
+    (outdir / "_summary.json").write_text(json.dumps(summary, indent=2))
+    if meta is not None:
+        (outdir / "_meta.json").write_text(json.dumps(meta, indent=2, default=str))
+    return summary
+
+
 def collect_records(session, credscan: bool = False) -> dict:
     """Run every collector against a session and return everything in memory (no files
     written). This is what the API's on-demand scan uses; the CLI `run()` wraps it and
@@ -67,6 +85,7 @@ def collect_records(session, credscan: bool = False) -> dict:
         "arn": ident.get("Arn", ""),
         "records": records,
         "cred_findings": findings,
+        "by_collector": collected,
         "counts": {name: len(recs) for name, recs in collected.items()},
     }
 
@@ -81,15 +100,10 @@ def run() -> dict[str, int]:
 
     ctx = base.Context(session)
     outdir = pathlib.Path(settings.cleave_output_dir)
-    outdir.mkdir(parents=True, exist_ok=True)
 
     t = time.perf_counter()
     collected = run_collectors(ctx)
     log.info("collected in %.1fs", time.perf_counter() - t)
-    summary: dict[str, int] = {}
-    for name, records in collected.items():
-        (outdir / f"{name}.json").write_text(json.dumps(records, indent=2, default=str))
-        summary[name] = len(records)
 
     # Credential-in-content scan. OFF by default: it reads S3 object bodies (s3:GetObject),
     # which the default read-only role does not grant, so running it unconditionally would
@@ -106,10 +120,9 @@ def run() -> dict[str, int]:
         findings = []
         log.info("  %-12s disabled (set CLEAVE_CREDSCAN=true + grant s3:GetObject to enable)",
                  "credscan")
-    (outdir / "_credentials.json").write_text(json.dumps(findings, indent=2, default=str))
-    summary["credscan_findings"] = len(findings)
-
-    (outdir / "_summary.json").write_text(json.dumps(summary, indent=2))
+    summary = write_raw(outdir, collected, findings, meta={
+        "account": ident.get("Account", ""), "arn": ident.get("Arn", ""), "mode": "cli",
+        "scanned_at": datetime.now(timezone.utc).isoformat()})
     log.info("wrote %d collectors -> %s", len(summary), outdir)
     return summary
 

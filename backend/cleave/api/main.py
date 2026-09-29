@@ -5,19 +5,36 @@ Routes stay thin: they call the service, which caches the analysis. The heavy li
 the API and `python -m cleave.paths.run` can never disagree.
 """
 from __future__ import annotations
-from fastapi import FastAPI, HTTPException, Query
+import hmac
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from ..config import settings
 from . import service
 
 app = FastAPI(title="Cleave", version="0.5.0",
               description="Reachability-ranked attack path analysis for AWS")
 
-# The dashboard is served from a separate origin in dev (Vite on :3000). Product ships
-# both behind one origin, but allow local dev origins so Phase 6 can call the API.
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    """With CLEAVE_API_TOKEN set (the desktop app), every route but /health needs the
+    token. Registered before CORS so CORS stays outermost: preflights are answered by it,
+    and a 401 still carries CORS headers the dashboard can read."""
+    token = settings.cleave_api_token
+    if token and request.method != "OPTIONS" and request.url.path != "/health":
+        sent = request.headers.get("x-cleave-token", "")
+        if not hmac.compare_digest(sent.encode(), token.encode()):
+            return JSONResponse({"detail": "missing or invalid X-Cleave-Token"}, status_code=401)
+    return await call_next(request)
+
+
+# The dashboard is served from a separate origin (Vite on :3000 in dev, the Tauri webview
+# on desktop), so the allowed origins come from the environment.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=[o.strip() for o in settings.cleave_cors_origins.split(",") if o.strip()],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )

@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     # is network-bound, so this mostly trades wall-clock for API rate. 1 = fully serial.
     cleave_scan_workers: int = 16
 
+    # API / desktop. Where the analysis graph comes from: "neo4j" (the compose stack; falls
+    # back to the raw dump if Neo4j is down) or "memory" (raw dump only — the desktop app,
+    # which ships no Neo4j). A non-empty token makes every route except /health require an
+    # X-Cleave-Token header; the desktop shell sets a random one per launch so no other
+    # local web page can drive a scan with the user's AWS credentials.
+    cleave_graph_store: str = "neo4j"
+    cleave_api_token: str = ""
+    cleave_cors_origins: str = "http://localhost:3000,http://localhost:5173"
+
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"
     neo4j_user: str = "neo4j"
