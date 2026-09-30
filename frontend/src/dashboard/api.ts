@@ -67,6 +67,37 @@ export interface ScanInfo {
   duration_s?: number;
 }
 
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+export type Reachability = "on_path" | "entry_point" | "account" | "not_reachable";
+
+/** One per-resource finding (the Nessus-style layer), tagged by reachability. */
+export interface Finding {
+  id: string;
+  rank: number;
+  check: string; // e.g. "IAM.USER_NO_MFA"
+  title: string;
+  service: string;
+  severity: Severity;
+  base_severity: Severity;
+  severity_reason: string | null;
+  cis: string | null; // CIS AWS Foundations v3.0.0 control, if one applies
+  remediation: string;
+  resource: string;
+  resource_name: string;
+  region: string | null;
+  evidence: string;
+  reachability: Reachability;
+  paths: string[]; // attack path ids this finding sits on
+}
+
+export interface FindingsSummary {
+  total: number;
+  by_severity: Record<Severity, number>;
+  by_reachability: Record<Reachability, number>;
+  checks_run: number;
+  checks_failed: number;
+}
+
 export interface Analysis {
   source: "neo4j" | "raw" | "mock" | "scan";
   account: string;
@@ -85,6 +116,8 @@ export interface Analysis {
   paths: AttackPath[];
   minimum_cut: { edges: CutEdge[]; total_cost: number; paths_total: number };
   best_single_fix: CutEdge[];
+  findings: Finding[];
+  findings_summary: FindingsSummary | null;
 }
 
 // ---- client ------------------------------------------------------------------------
@@ -208,5 +241,7 @@ function mapLive(a: any): Analysis {
       paths_total: a.minimum_cut?.paths_total ?? paths.length,
     },
     best_single_fix: (a.best_single_fix ?? []).map(mapEdge),
+    findings: a.findings ?? [],
+    findings_summary: a.findings_summary ?? null,
   };
 }

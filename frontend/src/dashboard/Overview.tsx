@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, ArrowClockwise, CircleNotch, Scissors, CheckCircle } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
 import { connect, type Analysis } from "./api";
+import { SEVERITIES, SeverityGlyph } from "./Severity";
 
-const COVERAGE = "IAM, S3, EC2, VPC, Lambda, RDS, Secrets Manager, KMS";
+const COVERAGE = "IAM, S3, EC2, EBS, VPC, Lambda, RDS, Secrets Manager, KMS, CloudTrail";
 
 function when(iso: string): string {
   const d = new Date(iso);
@@ -12,6 +13,35 @@ function when(iso: string): string {
   return sameDay
     ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** The findings layer at a glance: per-severity counts and how many sit on a path. */
+function FindingsStrip({ data }: { data: Analysis }) {
+  const nav = useNavigate();
+  const fs = data.findings_summary;
+  if (!fs || fs.total === 0) return null;
+  const onPath = fs.by_reachability.on_path;
+  return (
+    <button onClick={() => nav("/dashboard/findings")}
+      className="group mt-6 flex w-full flex-col gap-4 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-5 text-left transition-colors hover:border-[color:var(--accent)] sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div className="mono text-[11px] uppercase tracking-[0.14em] text-[color:var(--dim)]">findings</div>
+        <div className="mt-1.5 text-[16px] text-[color:var(--text)]">
+          {fs.total} findings from {fs.checks_run} checks ·{" "}
+          {onPath > 0 ? <span className="accent">{onPath} on an attack path</span>
+            : <span className="text-[color:var(--muted)]">none on an attack path</span>}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {SEVERITIES.filter((v) => fs.by_severity[v] > 0).map((v) => (
+          <span key={v} className="mono inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-2)]">
+            <SeverityGlyph severity={v} /> {fs.by_severity[v]} {v}
+          </span>
+        ))}
+        <ArrowRight size={15} className="text-[color:var(--dim)] group-hover:text-[color:var(--text)]" />
+      </div>
+    </button>
+  );
 }
 
 /** Zero paths is a real, finished result — say so plainly, with what was scanned. */
@@ -54,6 +84,7 @@ function CleanResult({ data }: { data: Analysis }) {
         {scan && <><span aria-hidden>·</span><span>scanned {when(scan.scanned_at)}</span></>}
       </div>
       <p className="mono mx-auto mt-2 text-[11.5px] text-[color:var(--dim)]">covered: {COVERAGE}</p>
+      <div className="mx-auto mt-8 max-w-[640px] text-left"><FindingsStrip data={data} /></div>
 
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <button onClick={rescan} disabled={busy}
@@ -95,6 +126,7 @@ export function Overview() {
         <Stat label="to admin" value={s.sinks_admin} />
         <Stat label="to sensitive data" value={s.sinks_sensitive_data} />
       </div>
+      <FindingsStrip data={data} />
 
       {/* best single fix callout */}
       {s.best_single_fix && (

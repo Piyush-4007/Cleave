@@ -19,8 +19,8 @@ function AccountBadge() {
   const { data } = useAnalysis();
   const sc = data?.source !== "mock" ? data?.scan : undefined;
   const label = !data ? "connecting…"
-    : !sc ? `acct ${data.account}`
-    : `${sc.principal_name ?? "?"} · ${sc.alias || data.account}`;
+    : !sc?.principal_name ? `acct ${sc?.alias || data.account}` // older saved scans carry no identity
+    : `${sc.principal_name} · ${sc.alias || data.account}`;
   return (
     <Link to="/dashboard/connect" className="flex items-center gap-3 no-underline"
       title={sc?.arn ? `${sc.arn} (manage connection)` : "Manage connection"}>

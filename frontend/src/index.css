@@ -27,6 +27,13 @@
   --display-tracking: -0.02em;
   --display-weight: 700;
   --grid: rgba(255, 255, 255, 0.025);
+  /* finding severity: status steps from the dataviz reference palette (fixed across
+     themes), always shown with a text label + bar glyph, never colour alone */
+  --sev-critical: #d03b3b;
+  --sev-high: #ec835a;
+  --sev-medium: #fab219;
+  --sev-low: #2a78d6;
+  --sev-info: #6e6e68;
   color-scheme: dark;
 }
 
@@ -48,6 +55,11 @@
   --display-tracking: 0em;
   --display-weight: 600;
   --grid: rgba(31, 42, 31, 0.035);
+  --sev-critical: #d03b3b;
+  --sev-high: #ec835a;
+  --sev-medium: #fab219;
+  --sev-low: #2a78d6;
+  --sev-info: #8a8570;
   color-scheme: light;
 }
 

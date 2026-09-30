@@ -152,4 +152,6 @@ export const MOCK: Analysis = {
   paths,
   minimum_cut: { total_cost: 21, paths_total: 6, edges: cut },
   best_single_fix: cut,
+  findings: [],
+  findings_summary: null,
 };

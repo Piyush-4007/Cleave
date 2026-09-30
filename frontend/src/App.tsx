@@ -5,7 +5,8 @@ import { DashboardShell } from "./dashboard/Shell";
 import { Overview } from "./dashboard/Overview";
 import { PathViewer } from "./dashboard/PathViewer";
 import { Remediation } from "./dashboard/Remediation";
-import { Findings, History } from "./dashboard/Simple";
+import { History } from "./dashboard/Simple";
+import { Findings } from "./dashboard/Findings";
 import { Connect } from "./dashboard/Connect";
 
 export default function App() {
