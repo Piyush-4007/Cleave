@@ -52,14 +52,23 @@ ADMIN_EQUIVALENT_ACTIONS = {
 # it. Adding a service here is how Cleave learns a new launch route.
 #   key   = the service principal the target role must trust
 #   value = every IAM action required, ALL of which the attacker must hold
+# Value is a list of ROUTES; each route is an AND-list of actions. The service is
+# launchable if the attacker holds every action of ANY one route. Multiple routes because
+# a service usually offers several ways to run code as a role — e.g. Glue via a dev
+# endpoint, or via CreateJob+StartJobRun (the CloudGoat glue_privesc path). Learned by
+# reading real scenarios: a single action per service missed live escalations.
 LAUNCH_SERVICES = {
-    "lambda.amazonaws.com":         ["lambda:CreateFunction"],
-    "ec2.amazonaws.com":            ["ec2:RunInstances"],   # + an instance profile (special-cased)
-    "ecs-tasks.amazonaws.com":      ["ecs:RegisterTaskDefinition", "ecs:RunTask"],
-    "glue.amazonaws.com":           ["glue:CreateDevEndpoint"],
-    "sagemaker.amazonaws.com":      ["sagemaker:CreateTrainingJob"],
-    "codebuild.amazonaws.com":      ["codebuild:CreateProject", "codebuild:StartBuild"],
-    "cloudformation.amazonaws.com": ["cloudformation:CreateStack"],
+    "lambda.amazonaws.com":         [["lambda:CreateFunction"]],
+    "ec2.amazonaws.com":            [["ec2:RunInstances"]],   # + an instance profile (special-cased)
+    "ecs-tasks.amazonaws.com":      [["ecs:RegisterTaskDefinition", "ecs:RunTask"]],
+    "glue.amazonaws.com":           [["glue:CreateDevEndpoint"],
+                                     ["glue:CreateJob", "glue:StartJobRun"],
+                                     ["glue:UpdateJob", "glue:StartJobRun"]],
+    "sagemaker.amazonaws.com":      [["sagemaker:CreateTrainingJob"],
+                                     ["sagemaker:CreateNotebookInstance"]],
+    "codebuild.amazonaws.com":      [["codebuild:CreateProject", "codebuild:StartBuild"],
+                                     ["codebuild:UpdateProject", "codebuild:StartBuild"]],
+    "cloudformation.amazonaws.com": [["cloudformation:CreateStack"]],
 }
 
 # Dangerous only in combination. Excluded from grants_admin() on purpose.
@@ -73,7 +82,7 @@ ENABLING_PRIMITIVES = {
     "sts:AssumeRole",                     # the role's trust policy decides; see CAN_ASSUME
     "lambda:UpdateFunctionCode",          # = that function's role; see CAN_WRITE -> EXECUTES_AS
     # every launch action (needs PassRole + a service-trusting role; see CAN_LAUNCH_AS)
-    *(a for actions in LAUNCH_SERVICES.values() for a in actions),
+    *(a for routes in LAUNCH_SERVICES.values() for route in routes for a in route),
 }
 
 assert not (ADMIN_EQUIVALENT_ACTIONS & ENABLING_PRIMITIVES), "an action is one or the other"

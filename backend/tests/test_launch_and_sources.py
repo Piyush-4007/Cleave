@@ -216,6 +216,7 @@ def admin_role_trusting(service):
 LAUNCH_CASES = [
     ("ecs-tasks.amazonaws.com", ["ecs:RegisterTaskDefinition", "ecs:RunTask"]),
     ("glue.amazonaws.com", ["glue:CreateDevEndpoint"]),
+    ("glue.amazonaws.com", ["glue:CreateJob", "glue:StartJobRun"]),   # the glue_privesc route
     ("sagemaker.amazonaws.com", ["sagemaker:CreateTrainingJob"]),
     ("codebuild.amazonaws.com", ["codebuild:CreateProject", "codebuild:StartBuild"]),
     ("cloudformation.amazonaws.com", ["cloudformation:CreateStack"]),
@@ -251,7 +252,8 @@ def test_launch_actions_are_all_enabling_primitives_not_admin_equivalent():
     """Every launch action must be an enabling primitive (needs PassRole), never admin alone,
     or grants_admin would fire a false Certain path from the action by itself."""
     from cleave.iam.catalogue import ADMIN_EQUIVALENT_ACTIONS, ENABLING_PRIMITIVES
-    for actions in LAUNCH_SERVICES.values():
-        for a in actions:
-            assert a in ENABLING_PRIMITIVES, a
-            assert a not in ADMIN_EQUIVALENT_ACTIONS, a
+    for routes in LAUNCH_SERVICES.values():
+        for route in routes:
+            for a in route:
+                assert a in ENABLING_PRIMITIVES, a
+                assert a not in ADMIN_EQUIVALENT_ACTIONS, a

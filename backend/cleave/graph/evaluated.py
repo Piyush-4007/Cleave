@@ -107,9 +107,10 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
         docs = eff_docs(pr)
         if not docs:
             continue
-        # Evaluate each launch service's required action(s) once for this principal.
-        compute = {svc: [is_allowed(docs, a, "*") for a in actions]
-                   for svc, actions in LAUNCH_SERVICES.items()}
+        # Evaluate every launch action once for this principal (cached across roles).
+        launch_actions = {a for routes in LAUNCH_SERVICES.values()
+                          for route in routes for a in route}
+        allow = {a: is_allowed(docs, a, "*") for a in launch_actions}
         add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*")
         create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*")
         can_fill_profile = add_to_profile.decision is Decision.ALLOW and (
@@ -124,24 +125,30 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                                pr_res.reason, f"{pr['_id']}#effective-policies", pr_res.bucket))
 
             trusted, _ = trust_principals(role)
-            for svc, actions in LAUNCH_SERVICES.items():
-                results = compute[svc]
-                if svc not in trusted or any(r.decision is not Decision.ALLOW for r in results):
-                    continue  # role does not trust this service, or a required action is missing
-                steps = list(actions)
-                buckets = [pr_res.bucket, *(r.bucket for r in results)]
-                if svc == "ec2.amazonaws.com" and role["_id"] not in in_a_profile:
-                    if not can_fill_profile:
-                        continue  # no instance profile can carry it
-                    steps.append("iam:AddRoleToInstanceProfile")
-                    buckets.append(add_to_profile.bucket)
-                conf = "Possible" if "Possible" in buckets else "Certain"
-                edges.append(_edge(pr["_id"], role["_id"], "CAN_LAUNCH_AS",
-                                   f"can PassRole + {' + '.join(steps)} "
-                                   f"(role trusts {svc}; launch a resource carrying it)",
-                                   f"{pr['_id']}#effective-policies;{role['_id']}#TrustPolicy",
-                                   conf))
-                break  # one route is enough to establish the edge
+            launched = False
+            for svc, routes in LAUNCH_SERVICES.items():
+                if svc not in trusted:
+                    continue  # role does not trust this service
+                for route in routes:
+                    if any(allow[a].decision is not Decision.ALLOW for a in route):
+                        continue  # this route is missing an action; try the next route
+                    steps = list(route)
+                    buckets = [pr_res.bucket, *(allow[a].bucket for a in route)]
+                    if svc == "ec2.amazonaws.com" and role["_id"] not in in_a_profile:
+                        if not can_fill_profile:
+                            continue  # no instance profile can carry it
+                        steps.append("iam:AddRoleToInstanceProfile")
+                        buckets.append(add_to_profile.bucket)
+                    conf = "Possible" if "Possible" in buckets else "Certain"
+                    edges.append(_edge(pr["_id"], role["_id"], "CAN_LAUNCH_AS",
+                                       f"can PassRole + {' + '.join(steps)} "
+                                       f"(role trusts {svc}; launch a resource carrying it)",
+                                       f"{pr['_id']}#effective-policies;{role['_id']}#TrustPolicy",
+                                       conf))
+                    launched = True
+                    break  # one route per service is enough
+                if launched:
+                    break  # one service is enough to establish the edge
 
     # ---- CAN_REACH (Internet -> resource) ----
     edges += compute_reach(records)
