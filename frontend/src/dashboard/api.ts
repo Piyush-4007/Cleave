@@ -197,6 +197,75 @@ export async function connect(mode: "login" | "role", roleArn?: string): Promise
   return r.json();
 }
 
+/** Forget the connected account on this machine. Cleave holds no AWS credentials, so
+ *  nothing is revoked; the current scan (and, if asked, its history) is deleted. */
+export async function disconnect(forgetHistory: boolean): Promise<{ history_deleted: number }> {
+  const r = await api("/disconnect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ forget_history: forgetHistory }),
+  });
+  if (!r.ok) throw new Error(`disconnect failed (${r.status})`);
+  return r.json();
+}
+
+export interface ScanRecord {
+  id: number;
+  account: string;
+  alias: string | null;
+  arn: string | null;
+  principal_name: string | null;
+  principal_type: string | null;
+  mode: string | null;
+  scanned_at: string;
+  duration_s: number | null;
+  resources: number | null;
+  paths_found: number;
+  findings_total: number;
+  on_path: number;
+  by_severity: Partial<Record<Severity, number>>;
+  delta: null | { previous_id: number; findings_new: number; findings_newly_checked: number;
+    findings_resolved: number; paths_new: number; paths_resolved: number };
+}
+
+export interface HistoryFinding {
+  key: string; check_id: string; resource: string; resource_name: string; title: string;
+  severity: Severity; reachability: Reachability; evidence: string;
+  newly_checked?: boolean; // from a check the previous scan did not run: seen now, not introduced now
+}
+export interface HistoryPath { key: string; path_id: string; title: string; score: number }
+
+export interface HistoryDiff {
+  scan: ScanRecord;
+  previous: ScanRecord | null;
+  coverage_changed: boolean;
+  findings: { new: HistoryFinding[]; resolved: HistoryFinding[]; unchanged: number };
+  paths: { new: HistoryPath[]; resolved: HistoryPath[]; unchanged: number };
+}
+
+/** Stored scans (newest first); [] when there is no backend (web demo). */
+export async function getHistory(account?: string): Promise<ScanRecord[]> {
+  try {
+    const r = await api(`/history${account ? `?account=${encodeURIComponent(account)}` : ""}`);
+    return r.ok ? r.json() : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getHistoryDiff(id: number): Promise<HistoryDiff> {
+  const r = await api(`/history/${id}`);
+  if (!r.ok) throw new Error(`history ${id} failed (${r.status})`);
+  return r.json();
+}
+
+/** "cleave-dev (IAM user)" — who a scan ran as, in one phrase. */
+export function whoLabel(s?: { principal_name?: string | null; principal_type?: string | null } | null): string | null {
+  if (!s?.principal_name) return null;
+  const kind = s.principal_type === "role" ? "IAM role" : s.principal_type === "user" ? "IAM user" : null;
+  return s.principal_type === "root" ? "root account" : kind ? `${s.principal_name} (${kind})` : s.principal_name;
+}
+
 // Map the live /analysis response onto the UI types. The backend enriches each path with
 // `view` (node names, types, inspector detail) and `title`, so live data renders as richly
 // as the mock.

@@ -5,7 +5,7 @@ import { DashboardShell } from "./dashboard/Shell";
 import { Overview } from "./dashboard/Overview";
 import { PathViewer } from "./dashboard/PathViewer";
 import { Remediation } from "./dashboard/Remediation";
-import { History } from "./dashboard/Simple";
+import { History } from "./dashboard/History";
 import { Findings } from "./dashboard/Findings";
 import { Connect } from "./dashboard/Connect";
 

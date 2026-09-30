@@ -69,6 +69,35 @@ def scan(req: ConnectRequest) -> dict:
         raise HTTPException(status_code=502, detail=f"scan failed: {type(e).__name__}: {e}")
 
 
+class DisconnectRequest(BaseModel):
+    forget_history: bool = False
+
+
+@app.post("/disconnect")
+def disconnect(req: DisconnectRequest) -> dict:
+    """Forget the connected account on this machine (Cleave holds no credentials to revoke).
+    Clears the current scan; with forget_history, that account's stored history too."""
+    return service.disconnect(req.forget_history)
+
+
+@app.get("/history")
+def history_list(account: str | None = None) -> list[dict]:
+    """Stored scans, newest first, each with its change vs the previous scan."""
+    from .. import history
+    return history.list_scans(account)
+
+
+@app.get("/history/{scan_id}")
+def history_diff(scan_id: int) -> dict:
+    """One scan against the previous scan of the same account: new / resolved findings
+    and paths."""
+    from .. import history
+    d = history.diff(scan_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail=f"no scan {scan_id}")
+    return d
+
+
 @app.get("/analysis")
 def analysis(refresh: bool = Query(False, description="rebuild after a new scan/load")) -> dict:
     """The full picture: ranked paths, minimum cut, best single fix, and summary counts."""

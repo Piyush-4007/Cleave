@@ -56,6 +56,7 @@ def test_health_and_preflight_stay_open_with_token(monkeypatch):
 def test_scan_is_persisted_and_reloaded_after_restart(monkeypatch, tmp_path, fresh_state):
     fx = json.loads(FIX.read_text())
     monkeypatch.setattr(settings, "cleave_output_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "cleave_db_path", str(tmp_path / "cleave.db"))
     monkeypatch.setattr(settings, "cleave_graph_store", "memory")
     monkeypatch.setattr(aws_session, "build_session_for", lambda role_arn=None: object())
     monkeypatch.setattr(collect, "collect_records", lambda session, credscan=False: {

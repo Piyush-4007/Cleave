@@ -4,7 +4,7 @@ import { ShieldCheck } from "@phosphor-icons/react";
 import { Mark } from "../components/Logo";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { AnalysisProvider, useAnalysis } from "./useAnalysis";
-import { getConnection, waitForBackend } from "./api";
+import { getConnection, waitForBackend, whoLabel } from "./api";
 import { DESKTOP } from "../desktop";
 
 const TABS = [
@@ -19,8 +19,9 @@ function AccountBadge() {
   const { data } = useAnalysis();
   const sc = data?.source !== "mock" ? data?.scan : undefined;
   const label = !data ? "connecting…"
-    : !sc?.principal_name ? `acct ${sc?.alias || data.account}` // older saved scans carry no identity
-    : `${sc.principal_name} · ${sc.alias || data.account}`;
+    : data.source !== "mock" && !sc ? "not connected"
+    : !whoLabel(sc) ? `acct ${sc?.alias || data.account}`
+    : `${whoLabel(sc)} · ${sc!.alias || data.account}`;
   return (
     <Link to="/dashboard/connect" className="flex items-center gap-3 no-underline"
       title={sc?.arn ? `${sc.arn} (manage connection)` : "Manage connection"}>

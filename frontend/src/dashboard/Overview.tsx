@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, ArrowClockwise, CircleNotch, Scissors, CheckCircle } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
-import { connect, type Analysis } from "./api";
+import { connect, getHistory, whoLabel, type Analysis, type ScanRecord } from "./api";
 import { SEVERITIES, SeverityGlyph } from "./Severity";
 
 const COVERAGE = "IAM, S3, EC2, EBS, VPC, Lambda, RDS, Secrets Manager, KMS, CloudTrail";
@@ -44,6 +44,31 @@ function FindingsStrip({ data }: { data: Analysis }) {
   );
 }
 
+/** "Since last scan": what changed vs the previous stored scan of this account. */
+function SinceLastScan({ account }: { account: string }) {
+  const nav = useNavigate();
+  const [delta, setDelta] = useState<ScanRecord["delta"] | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    getHistory(account).then((h) => live && setDelta(h[0]?.delta ?? null));
+    return () => { live = false; };
+  }, [account]);
+  if (!delta) return null; // first scan of this account (or no backend): nothing to compare
+  const parts = [
+    `${delta.findings_new} new finding${delta.findings_new === 1 ? "" : "s"}`,
+    ...(delta.findings_newly_checked ? [`${delta.findings_newly_checked} newly checked`] : []),
+    `${delta.findings_resolved} resolved`,
+    `${delta.paths_new} new path${delta.paths_new === 1 ? "" : "s"}`,
+    `${delta.paths_resolved} closed`,
+  ];
+  return (
+    <button onClick={() => nav("/dashboard/history")}
+      className="mono mt-3 inline-flex items-center gap-2 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--text)]">
+      since last scan: {parts.join(" · ")} <ArrowRight size={12} />
+    </button>
+  );
+}
+
 /** Zero paths is a real, finished result — say so plainly, with what was scanned. */
 function CleanResult({ data }: { data: Analysis }) {
   const nav = useNavigate();
@@ -79,12 +104,14 @@ function CleanResult({ data }: { data: Analysis }) {
         identity to admin or to sensitive data.
       </p>
       <div className="mono mx-auto mt-5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px] text-[color:var(--muted)]">
+        {whoLabel(scan) && <><span className="text-[color:var(--text-2)]">{whoLabel(scan)}</span><span aria-hidden>·</span></>}
         <span>acct {data.account}</span>
         {via && <><span aria-hidden>·</span><span>{via}</span></>}
         {scan && <><span aria-hidden>·</span><span>scanned {when(scan.scanned_at)}</span></>}
       </div>
       <p className="mono mx-auto mt-2 text-[11.5px] text-[color:var(--dim)]">covered: {COVERAGE}</p>
       <div className="mx-auto mt-8 max-w-[640px] text-left"><FindingsStrip data={data} /></div>
+      <SinceLastScan account={data.account} />
 
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <button onClick={rescan} disabled={busy}
@@ -119,6 +146,12 @@ export function Overview() {
         {s.resources.toLocaleString()} resources scanned.{" "}
         <span className="accent">{s.paths_found} live paths</span> to something that matters.
       </h1>
+      {data.scan && (
+        <p className="mono mt-3 text-[12px] text-[color:var(--muted)]">
+          scanned as <span className="text-[color:var(--text-2)]">{whoLabel(data.scan) ?? "unknown"}</span> in
+          account {data.scan.alias || data.account} · {new Date(data.scan.scanned_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+        </p>
+      )}
 
       <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-[color:var(--line)] bg-[color:var(--line)] sm:grid-cols-4">
         <Stat label="attack paths" value={s.paths_found} />
@@ -127,6 +160,7 @@ export function Overview() {
         <Stat label="to sensitive data" value={s.sinks_sensitive_data} />
       </div>
       <FindingsStrip data={data} />
+      <SinceLastScan account={data.account} />
 
       {/* best single fix callout */}
       {s.best_single_fix && (

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Check, ShieldCheck, ArrowRight, ArrowLeft, ArrowClockwise, CircleNotch, Cloud, Lock, Warning } from "@phosphor-icons/react";
-import { connect, type Analysis } from "./api";
+import { Copy, Check, ShieldCheck, ArrowRight, ArrowLeft, ArrowClockwise, CircleNotch, Cloud, Lock, Warning, SignOut } from "@phosphor-icons/react";
+import { connect, disconnect, getHistory, type Analysis } from "./api";
 import { useAnalysis } from "./useAnalysis";
 
 const SNIPPET = `# Run in your own AWS account. Creates a read-only role Cleave assumes.
@@ -35,8 +35,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 /** Once an account is connected, this replaces the connect form: who, which account,
  *  how, and when, so there is no doubt it is connected. The form is one click away. */
-function AccountCard({ data, busy, onRescan, onSwitch }: {
-  data: Analysis; busy: boolean; onRescan: () => void; onSwitch: () => void;
+function AccountCard({ data, busy, onRescan, onSwitch, onDisconnect }: {
+  data: Analysis; busy: boolean; onRescan: () => void; onSwitch: () => void; onDisconnect: () => void;
 }) {
   const s = data.scan!;
   const who = s.principal_type === "root" ? "root account" : s.principal_name ?? "unknown identity";
@@ -58,10 +58,17 @@ function AccountCard({ data, busy, onRescan, onSwitch }: {
             className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-3.5 py-1.5 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--accent)] disabled:opacity-60">
             switch account <ArrowRight size={13} />
           </button>
+          <button onClick={onDisconnect} disabled={busy}
+            className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-3.5 py-1.5 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--cut)] hover:text-[color:var(--cut)] disabled:opacity-60">
+            <SignOut size={13} /> disconnect
+          </button>
         </div>
       </div>
 
-      <h2 className="display mt-4 text-[26px] leading-tight">{s.alias || `Account ${data.account}`}</h2>
+      <h2 className="display mt-4 text-[28px] leading-tight">{who}</h2>
+      <div className="mono mt-1 text-[12.5px] text-[color:var(--muted)]">
+        {kind && <>{kind} · </>}account {data.account}{s.alias && <> ({s.alias})</>}
+      </div>
       <dl className="mt-4">
         <Row label="Account ID">
           <span className="mono">{data.account}</span>
@@ -104,6 +111,27 @@ export function Connect() {
   const nav = useNavigate();
   const { reload, data } = useAnalysis();
   const [switching, setSwitching] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [forgetHistory, setForgetHistory] = useState(false);
+  const [historyCount, setHistoryCount] = useState(0);
+
+  const askDisconnect = async () => {
+    setHistoryCount((await getHistory(data?.account)).length);
+    setForgetHistory(false);
+    setConfirming(true);
+  };
+  const doDisconnect = async () => {
+    setError(null);
+    try {
+      await disconnect(forgetHistory);
+      setConfirming(false);
+      setSwitching(false);
+      reload();
+      nav("/dashboard/connect", { replace: true });
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
   const [busy, setBusy] = useState<"login" | "role" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showRole, setShowRole] = useState(false);
@@ -147,7 +175,36 @@ export function Connect() {
         <p className="mt-4 max-w-[56ch] text-[16px] leading-relaxed text-[color:var(--text-2)]">
           Everything in this dashboard comes from the scan below. Rescan to refresh it.
         </p>
-        <AccountCard data={data!} busy={busy !== null} onRescan={rescan} onSwitch={() => setSwitching(true)} />
+        <AccountCard data={data!} busy={busy !== null} onRescan={rescan} onSwitch={() => setSwitching(true)}
+          onDisconnect={askDisconnect} />
+        {confirming && (
+          <div className="mt-4 rounded-xl border border-[color:var(--cut)]/50 bg-[color:var(--panel)] p-5">
+            <div className="text-[15px] font-semibold text-[color:var(--text)]">
+              Disconnect {data!.scan!.alias || data!.account}?
+            </div>
+            <p className="mt-2 text-[14px] leading-relaxed text-[color:var(--text-2)]">
+              Cleave never stored your AWS credentials, so there is nothing to revoke. This clears
+              the current scan from this machine and returns to the connect screen. Your AWS login
+              itself is untouched.
+            </p>
+            <label className="mt-4 flex items-center gap-2.5 text-[14px] text-[color:var(--text-2)]">
+              <input type="checkbox" checked={forgetHistory} onChange={(e) => setForgetHistory(e.target.checked)}
+                disabled={historyCount === 0} className="accent-[color:var(--cut)]" />
+              Also delete this account's scan history
+              <span className="mono text-[12px] text-[color:var(--dim)]">({historyCount} stored scan{historyCount === 1 ? "" : "s"})</span>
+            </label>
+            <div className="mt-5 flex gap-2">
+              <button onClick={doDisconnect}
+                className="mono inline-flex items-center gap-2 rounded-md bg-[color:var(--cut)] px-4 py-2 text-[12px] font-medium text-white">
+                <SignOut size={13} /> disconnect
+              </button>
+              <button onClick={() => setConfirming(false)}
+                className="mono rounded-md border border-[color:var(--line)] px-4 py-2 text-[12px] text-[color:var(--text-2)]">
+                cancel
+              </button>
+            </div>
+          </div>
+        )}
         {error && (
           <div className="mono mt-5 rounded-lg border border-[color:var(--cut)]/40 bg-[color:var(--cut)]/8 px-4 py-3 text-[12.5px] cut">
             {error}

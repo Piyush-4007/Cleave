@@ -24,12 +24,18 @@ _STATE: dict = {"graph": None, "analysis": None, "source": None, "account": None
 
 
 def _meta_from_raw(raw_dir: str) -> dict:
-    """Who the dump on disk belongs to (written by write_raw), or {} for an older dump."""
+    """Who the dump on disk belongs to (written by write_raw), or {} for an older dump.
+
+    Scans saved before identity was recorded still carry the caller ARN, and the name is
+    in it; derive the identity fields so the UI never shows 'unknown identity' for them."""
     f = pathlib.Path(raw_dir) / "_meta.json"
     try:
-        return json.loads(f.read_text()) if f.exists() else {}
+        meta = json.loads(f.read_text()) if f.exists() else {}
     except ValueError:
         return {}
+    if meta.get("arn") and not meta.get("principal_type"):
+        meta = {**caller_identity(meta["arn"]), **meta}
+    return meta
 
 
 def _records_from_raw(raw_dir: str):
@@ -116,6 +122,12 @@ def run_scan(mode: str, role_arn: str | None = None) -> dict:
                               scan["cred_findings"], meta=meta)
         except OSError as e:
             log.warning("could not persist scan to %s: %s", settings.cleave_output_dir, e)
+        # ...and add it to the history. Like persistence, a failure here never fails a scan.
+        try:
+            from .. import history
+            meta["scan_id"] = history.record(meta, analysis)
+        except Exception as e:  # noqa: BLE001
+            log.warning("could not record scan history: %s", e)
         with _LOCK:
             _STATE.update(graph=g, analysis=analysis, source="scan",
                           account=scan["account"], connected=True, mode=mode, scanning=False)
@@ -152,8 +164,32 @@ def get_analysis(refresh: bool = False) -> dict:
     # leave a clean result looking like nothing happened.
     meta = _meta_from_raw(settings.cleave_output_dir)
     if meta and meta.get("account") == account:
+        if meta.get("admin_credentials") is None and meta.get("arn") and st.get("graph") is not None:
+            meta["admin_credentials"] = caller_identity(meta["arn"], st["graph"])["admin_credentials"]
         out["last_scan"] = meta
     return out
+
+
+def disconnect(forget_history: bool = False) -> dict:
+    """Forget the connected account on this machine.
+
+    Cleave never holds AWS credentials, so there is nothing to revoke: disconnecting clears
+    the current scan (memory + the saved raw dump) and, if asked, that account's history.
+    The user's own AWS login is untouched.
+    """
+    from .. import history
+    account = _STATE.get("account") or _meta_from_raw(settings.cleave_output_dir).get("account")
+    with _LOCK:
+        _STATE.update(graph=None, analysis=None, source=None, account=None,
+                      connected=False, mode=None, scanning=False)
+        raw = pathlib.Path(settings.cleave_output_dir)
+        removed = 0
+        for f in raw.glob("*.json"):
+            f.unlink()
+            removed += 1
+    deleted = history.forget(account) if (forget_history and account) else 0
+    log.info("disconnected %s (%d files removed, %d history scans deleted)", account, removed, deleted)
+    return {"disconnected": True, "account": account, "history_deleted": deleted}
 
 
 def get_path(path_id: str) -> dict | None:

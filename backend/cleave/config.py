@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     cleave_graph_store: str = "neo4j"
     cleave_api_token: str = ""
     cleave_cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    # Scan history (SQLite). Blank = cleave.db beside the raw-dump folder.
+    cleave_db_path: str = ""
 
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"
