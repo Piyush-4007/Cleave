@@ -38,6 +38,10 @@ def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
         d["view"] = [_node_view(g, uid) for uid in d["nodes"]]
         d["title"] = _path_title(d["view"], d["sink"]["kind"], d["length"])
 
+    # Per-resource findings (the Nessus-style layer), tagged and ranked by the paths above.
+    from ..findings import run_checks, summarize, tag_and_rank
+    findings = tag_and_rank(run_checks(g), ranked, sources)
+
     ext = sum(1 for s in sources if s.kind == EXTERNAL)
     return {
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
@@ -59,6 +63,8 @@ def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
         "paths": ranked,
         "minimum_cut": cut,
         "best_single_fix": fixes,
+        "findings": findings,
+        "findings_summary": summarize(findings),
     }
 
 

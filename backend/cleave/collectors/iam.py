@@ -4,8 +4,64 @@ trust policies, and access keys WITH last-used dates. IAM is global (no region l
 Reads and normalises only; it never marks anything insecure.
 """
 from __future__ import annotations
+import csv
+import io
+import time
 from .base import collector, paginate
 from ._util import as_doc
+
+
+def parse_credential_report(content) -> list[dict]:
+    """The IAM credential report is a CSV (one row per user, plus <root_account>). It holds
+    no secrets: only flags and dates (password_enabled, mfa_active, key age / last use).
+    Normalised: 'N/A' / 'no_information' / 'not_supported' become None, 'true'/'false'
+    become bools."""
+    text = content.decode("utf-8") if isinstance(content, bytes) else content
+    rows = []
+    for row in csv.DictReader(io.StringIO(text)):
+        norm = {}
+        for k, v in row.items():
+            if v in ("N/A", "no_information", "not_supported", ""):
+                norm[k] = None
+            elif v in ("true", "false"):
+                norm[k] = v == "true"
+            else:
+                norm[k] = v
+        rows.append(norm)
+    return rows
+
+
+def _account_records(iam) -> list[dict]:
+    """Account-level IAM facts the findings layer needs. Each is emitted only if it could
+    be read, so a missing record means 'unknown', never 'fine'; the checks rely on that."""
+    out: list[dict] = []
+    # Credential report: GenerateCredentialReport only (re)builds AWS's own report. It is
+    # allowed by SecurityAudit and changes no configuration; AWS reuses one under 4h old.
+    try:
+        for _ in range(15):
+            if iam.generate_credential_report().get("State") == "COMPLETE":
+                break
+            time.sleep(1)
+        rep = iam.get_credential_report()
+        out.append({"_type": "IamCredentialReport", "_id": "account:credential-report",
+                    "GeneratedTime": rep.get("GeneratedTime"),
+                    "Rows": parse_credential_report(rep["Content"])})
+    except Exception:  # noqa: BLE001 - denied / not ready: leave it unknown
+        pass
+    try:
+        pol = iam.get_account_password_policy().get("PasswordPolicy")
+        out.append({"_type": "IamPasswordPolicy", "_id": "account:password-policy", "Policy": pol})
+    except Exception as e:  # noqa: BLE001
+        if getattr(e, "response", {}).get("Error", {}).get("Code") == "NoSuchEntity":
+            # read fine: the account simply has no password policy
+            out.append({"_type": "IamPasswordPolicy", "_id": "account:password-policy",
+                        "Policy": None})
+    try:
+        out.append({"_type": "IamAccountSummary", "_id": "account:summary",
+                    "Summary": iam.get_account_summary().get("SummaryMap", {})})
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 @collector("iam")
@@ -127,4 +183,5 @@ def collect(ctx) -> list[dict]:
             "Roles": [r["Arn"] for r in ip.get("Roles", [])],
         })
 
+    out += _account_records(iam)
     return out

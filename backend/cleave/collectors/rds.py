@@ -19,6 +19,8 @@ def collect(ctx) -> list[dict]:
                     "VpcSecurityGroups": [g.get("VpcSecurityGroupId")
                                           for g in db.get("VpcSecurityGroups", [])],
                     "SubnetGroup": (db.get("DBSubnetGroup") or {}).get("DBSubnetGroupName"),
+                    "StorageEncrypted": db.get("StorageEncrypted"),
+                    "DeletionProtection": db.get("DeletionProtection"),
                     "Tags": {t["Key"]: t["Value"] for t in db.get("TagList", [])},
                 })
         except Exception:  # noqa: BLE001

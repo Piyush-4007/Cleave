@@ -23,6 +23,9 @@ NODE_LABELS = {
     "S3Bucket", "Ec2Instance", "SecurityGroup", "Subnet", "Vpc", "RouteTable",
     "NetworkAcl", "InternetGateway", "LambdaFunction", "RdsInstance",
     "SecretsManagerSecret", "SsmParameter", "KmsKey", "Principal", "Admin",
+    # account-level facts + extra inventory for the findings layer (1 Oct)
+    "IamCredentialReport", "IamPasswordPolicy", "IamAccountSummary", "EbsVolume",
+    "EbsDefaults", "CloudTrailTrail", "CloudTrailStatus",
 }
 EDGE_TYPES = {
     # structural (Phase 2)

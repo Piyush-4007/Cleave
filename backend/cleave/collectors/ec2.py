@@ -27,6 +27,19 @@ def collect(ctx) -> list[dict]:
                         "ImdsHttpTokens": (i.get("MetadataOptions") or {}).get("HttpTokens"),
                         "ImageId": i.get("ImageId"),
                     })
+            for v in paginate(ec2, "describe_volumes", "Volumes"):
+                out.append({
+                    "_type": "EbsVolume", "_id": v["VolumeId"], "Region": region,
+                    "VolumeId": v["VolumeId"], "State": v.get("State"),
+                    "Size": v.get("Size"), "VolumeType": v.get("VolumeType"),
+                    "Encrypted": v.get("Encrypted"),
+                    "AttachedTo": [a.get("InstanceId") for a in v.get("Attachments", [])],
+                })
+            out.append({
+                "_type": "EbsDefaults", "_id": f"account:ebs-defaults:{region}", "Region": region,
+                "EncryptionByDefault": ec2.get_ebs_encryption_by_default()
+                .get("EbsEncryptionByDefault"),
+            })
         except Exception:  # noqa: BLE001 - skip disabled/failed regions, keep going
             pass  # keep what this region yielded before the failure
         return out

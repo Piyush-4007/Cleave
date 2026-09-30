@@ -23,10 +23,17 @@ def collect(ctx) -> list[dict]:
                     policy = as_doc(kms.get_key_policy(KeyId=kid, PolicyName="default")["Policy"])
                 except Exception:  # noqa: BLE001
                     pass
+                rotation = None
+                try:
+                    rotation = kms.get_key_rotation_status(KeyId=kid).get("KeyRotationEnabled")
+                except Exception:  # noqa: BLE001 - asymmetric/imported keys do not rotate
+                    pass
                 out.append({
                     "_type": "KmsKey", "_id": meta.get("Arn") or kid, "Region": region,
                     "KeyId": kid, "Arn": meta.get("Arn"),
                     "KeyManager": meta.get("KeyManager"), "Policy": policy,
+                    "KeyState": meta.get("KeyState"), "KeySpec": meta.get("KeySpec"),
+                    "KeyRotationEnabled": rotation,
                 })
         except Exception:  # noqa: BLE001
             pass  # keep what this region yielded before the failure
