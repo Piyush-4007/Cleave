@@ -29,6 +29,7 @@ NODE_LABELS = {
     # role-carrying workloads + resource-policy holders (1 Oct)
     "GlueJob", "SageMakerNotebook", "CodeBuildProject", "EcsService",
     "SnsTopic", "SqsQueue", "EcrRepository",
+    "DynamoDbTable", "ApiGatewayApi", "EksCluster",
 }
 EDGE_TYPES = {
     # structural (Phase 2)

@@ -266,6 +266,36 @@
     "cis": null,
     "remediation": "Remove Principal '*' from the repository policy unless the images are meant to be public."
   },
+  "DYNAMODB.PUBLIC_POLICY": {
+    "title": "DynamoDB table policy allows any principal",
+    "severity": "high",
+    "service": "DynamoDB",
+    "cis": null,
+    "remediation": "Remove Principal '*' from the table's resource policy, or add conditions that pin down who can read or write it."
+  },
+  "APIGW.PUBLIC_ENDPOINT": {
+    "title": "API Gateway route needs no authentication",
+    "severity": "medium",
+    "service": "API Gateway",
+    "cis": null,
+    "remediation": "Set an authorizer (IAM, Cognito, or a Lambda authorizer) on the route, or remove it if it is not meant to be public. Trace what the route invokes."
+  },
+  "EKS.PUBLIC_API_ENDPOINT": {
+    "title": "EKS cluster API endpoint is public",
+    "severity": "medium",
+    "service": "EKS",
+    "cis": null,
+    "caveat": "Read-only IAM sees only the AWS side of EKS (cluster config, its IAM role, the OIDC provider). It cannot read the in-cluster access model \u2014 the aws-auth ConfigMap and Kubernetes RBAC \u2014 or which pods use which IRSA roles, because that needs Kubernetes API credentials Cleave deliberately does not hold. Privilege escalation inside the cluster may exist that this scan cannot see.",
+    "remediation": "Restrict the cluster endpoint's public access CIDRs, or make the endpoint private and reach it through the VPC."
+  },
+  "EKS.CLUSTER_PRESENT": {
+    "title": "EKS cluster present \u2014 in-cluster access not assessed",
+    "severity": "info",
+    "service": "EKS",
+    "cis": null,
+    "caveat": "Read-only IAM sees only the AWS side of EKS (cluster config, its IAM role, the OIDC provider). It cannot read the in-cluster access model \u2014 the aws-auth ConfigMap and Kubernetes RBAC \u2014 or which pods use which IRSA roles, because that needs Kubernetes API credentials Cleave deliberately does not hold. Privilege escalation inside the cluster may exist that this scan cannot see.",
+    "remediation": "Review the cluster's aws-auth ConfigMap and RBAC, and IRSA role trust policies, with cluster credentials \u2014 Cleave's read-only IAM scan cannot see these."
+  },
   "KMS.NO_ROTATION": {
     "title": "KMS key rotation is off",
     "severity": "medium",

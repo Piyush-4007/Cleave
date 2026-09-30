@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CaretDown, CaretRight, MagnifyingGlass, Wrench } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, MagnifyingGlass, Warning, Wrench } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
 import type { Finding, Reachability, Severity } from "./api";
 import { REACH, ReachTag, SEVERITIES, SeverityGlyph, SeverityPill, sevVar } from "./Severity";
@@ -18,6 +18,7 @@ interface Group {
   title: string;
   service: string;
   cis: string | null;
+  caveat: string | null;
   remediation: string;
   severity: Severity; // worst in the group
   reach: Reachability; // best (most reachable) in the group
@@ -30,6 +31,7 @@ function groupByCheck(fs: Finding[]): Group[] {
     const g = by.get(f.check);
     if (!g) {
       by.set(f.check, { check: f.check, title: f.title, service: f.service, cis: f.cis,
+        caveat: f.caveat ?? null,
         remediation: f.remediation, severity: f.severity, reach: f.reachability, items: [f] });
     } else {
       g.items.push(f);
@@ -167,7 +169,17 @@ export function Findings() {
                 className="flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-[color:var(--panel)]">
                 {isOpen ? <CaretDown size={13} className="shrink-0 text-[color:var(--dim)]" /> : <CaretRight size={13} className="shrink-0 text-[color:var(--dim)]" />}
                 <SeverityPill severity={g.severity} />
-                <span className="min-w-0 flex-1 text-[14px] text-[color:var(--text)]">{g.title}</span>
+                <span className="min-w-0 flex-1 text-[14px] text-[color:var(--text)]">
+                  {g.title}
+                  {g.caveat && (
+                    <span title={g.caveat}
+                      className="ml-2 inline-flex items-center gap-1 align-middle text-[color:var(--sev-medium)]"
+                      onClick={(e) => e.stopPropagation()}>
+                      <Warning size={14} weight="fill" />
+                      <span className="mono text-[10px] uppercase tracking-[0.08em]">limited</span>
+                    </span>
+                  )}
+                </span>
                 <span className="mono hidden w-[110px] shrink-0 text-[11px] text-[color:var(--dim)] md:block">{g.service}</span>
                 <span className="mono hidden w-[64px] shrink-0 text-[11px] text-[color:var(--dim)] md:block">{g.cis ? `CIS ${g.cis}` : ""}</span>
                 <span className="mono w-[40px] shrink-0 text-right text-[12px] text-[color:var(--text-2)]">×{g.items.length}</span>
@@ -176,6 +188,12 @@ export function Findings() {
 
               {isOpen && (
                 <div className="border-t border-[color:var(--line)] bg-[color:var(--panel)]/40 px-5 py-4 sm:pl-12">
+                  {g.caveat && (
+                    <div className="mb-3 flex gap-3 rounded-md border border-[color:var(--sev-medium)]/40 bg-[color:var(--panel)] px-3 py-2.5 text-[12.5px] text-[color:var(--text-2)]">
+                      <Warning size={15} weight="fill" className="mt-0.5 shrink-0" style={{ color: "var(--sev-medium)" }} />
+                      <span><b className="text-[color:var(--text)]">What a read-only scan can't see: </b>{g.caveat}</span>
+                    </div>
+                  )}
                   <div className="flex gap-3 text-[13.5px] text-[color:var(--text-2)]">
                     <Wrench size={15} className="accent mt-0.5 shrink-0" />
                     <span>

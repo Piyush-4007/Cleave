@@ -81,6 +81,7 @@ export interface Finding {
   base_severity: Severity;
   severity_reason: string | null;
   cis: string | null; // CIS AWS Foundations v3.0.0 control, if one applies
+  caveat?: string | null; // honest limit of what a read-only scan can see (e.g. EKS)
   remediation: string;
   resource: string;
   resource_name: string;

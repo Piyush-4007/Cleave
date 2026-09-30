@@ -23,6 +23,7 @@ LABEL_TO_TYPE = {
     "Principal": "principal",
     "GlueJob": "glue", "SageMakerNotebook": "sagemaker", "CodeBuildProject": "codebuild",
     "EcsService": "ecs", "SnsTopic": "sns", "SqsQueue": "sqs", "EcrRepository": "ecr",
+    "DynamoDbTable": "dynamodb", "ApiGatewayApi": "apigw", "EksCluster": "eks",
 }
 
 

@@ -616,3 +616,35 @@ def sqs_public(ctx):
 @check("ECR.PUBLIC_POLICY")
 def ecr_public(ctx):
     yield from _public_policy_check(ctx, "EcrRepository", "Policy", "Name")
+
+
+# ---- DynamoDB / API Gateway / EKS (1 Oct) ----------------------------------------------
+
+@check("DYNAMODB.PUBLIC_POLICY")
+def dynamodb_public(ctx):
+    yield from _public_policy_check(ctx, "DynamoDbTable", "Policy", "Name")
+
+
+@check("APIGW.PUBLIC_ENDPOINT")
+def apigw_public(ctx):
+    for uid, r in ctx.of("ApiGatewayApi"):
+        routes = r.get("PublicRoutes") or []
+        if routes:
+            shown = ", ".join(routes[:6]) + (f" (+{len(routes) - 6} more)" if len(routes) > 6 else "")
+            yield Hit(uid, f"{len(routes)} route(s) with authorizationType NONE: {shown}",
+                      nodes=[uid], name=f"{r.get('Name')} ({r.get('Protocol')})", region=r.get("Region"))
+
+
+@check("EKS.PUBLIC_API_ENDPOINT")
+def eks_public_endpoint(ctx):
+    for uid, r in ctx.of("EksCluster"):
+        if r.get("EndpointPublicAccess") and "0.0.0.0/0" in (r.get("PublicAccessCidrs") or []):
+            yield Hit(uid, "endpointPublicAccess=true with publicAccessCidrs 0.0.0.0/0",
+                      nodes=[uid], name=r.get("Name"), region=r.get("Region"))
+
+
+@check("EKS.CLUSTER_PRESENT")
+def eks_present(ctx):
+    for uid, r in ctx.of("EksCluster"):
+        yield Hit(uid, f"cluster {r.get('Name')} (v{r.get('Version')}) — AWS-side config read; "
+                  "in-cluster access not assessed", nodes=[uid], name=r.get("Name"), region=r.get("Region"))

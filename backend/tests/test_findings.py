@@ -204,6 +204,21 @@ CASES = [
      [resource_policy_node("SqsQueue", Policy=None)]),
     ("ECR.PUBLIC_POLICY", [resource_policy_node("EcrRepository", Policy=PUBLIC_STMT)],
      [resource_policy_node("EcrRepository", Policy=None)]),
+    ("DYNAMODB.PUBLIC_POLICY", [resource_policy_node("DynamoDbTable", Policy=PUBLIC_STMT)],
+     [resource_policy_node("DynamoDbTable", Policy=None)]),
+    ("APIGW.PUBLIC_ENDPOINT",
+     [{"_type": "ApiGatewayApi", "_id": "arn:apigw:1", "Name": "api", "Protocol": "HTTP",
+       "Region": "us-east-1", "PublicRoutes": ["GET /admin", "POST /run"]}],
+     [{"_type": "ApiGatewayApi", "_id": "arn:apigw:1", "Name": "api", "Protocol": "HTTP",
+       "Region": "us-east-1", "PublicRoutes": []}]),
+    ("EKS.PUBLIC_API_ENDPOINT",
+     [{"_type": "EksCluster", "_id": "arn:eks:1", "Name": "c", "Region": "us-east-1", "Version": "1.29",
+       "EndpointPublicAccess": True, "PublicAccessCidrs": ["0.0.0.0/0"]}],
+     [{"_type": "EksCluster", "_id": "arn:eks:1", "Name": "c", "Region": "us-east-1", "Version": "1.29",
+       "EndpointPublicAccess": True, "PublicAccessCidrs": ["10.0.0.0/8"]}]),
+    ("EKS.CLUSTER_PRESENT",
+     [{"_type": "EksCluster", "_id": "arn:eks:1", "Name": "c", "Region": "us-east-1", "Version": "1.29"}],
+     []),
 ]
 
 
@@ -224,6 +239,12 @@ def test_check_fires_on_bad_and_not_on_good(check, bad, good):
     assert hits, f"{check} did not fire"
     assert all(h["evidence"] for h in hits)
     assert fired(good, check) == [], f"{check} fired on a compliant account"
+
+
+def test_eks_findings_carry_the_readonly_caveat():
+    hits = fired([{"_type": "EksCluster", "_id": "arn:eks:1", "Name": "c", "Region": "us-east-1",
+                   "Version": "1.29"}], "EKS.CLUSTER_PRESENT")
+    assert hits and hits[0]["caveat"] and "Kubernetes" in hits[0]["caveat"]
 
 
 def test_unknown_is_not_a_finding():

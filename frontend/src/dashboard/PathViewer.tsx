@@ -12,6 +12,7 @@ const ICON: Record<string, React.ElementType> = {
   s3: Package, lambda: Lightning, rds: Database, policy: FileText, admin: Crown,
   glue: Gear, sagemaker: Gear, codebuild: Gear, ecs: Package, secret: FileText,
   kms: FileText, sns: Lightning, sqs: Lightning, ecr: Package,
+  dynamodb: Database, apigw: Globe, eks: Package,
 };
 
 function recommendedCut(path: AttackPath, fixes: CutEdge[]): number {

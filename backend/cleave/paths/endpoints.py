@@ -188,6 +188,11 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
                                   "Lambda function URL with AuthType=NONE — anyone can invoke it",
                                   f"{uid}#FunctionUrlAuthType"))
 
+        elif label == "ApiGatewayApi" and (rec.get("PublicRoutes")):
+            sources.append(Source(uid, EXTERNAL,
+                                  f"API Gateway with {len(rec['PublicRoutes'])} unauthenticated route(s)",
+                                  f"{uid}#PublicRoutes"))
+
         elif label == "Principal" and uid == "*":
             # a role trust policy naming Principal "*". The Phase 2 loader does not yet
             # evaluate trust Conditions, so this can over-report — v1 over-reports on

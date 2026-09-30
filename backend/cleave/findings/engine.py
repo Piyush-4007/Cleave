@@ -50,6 +50,7 @@ def run_checks(g, now=None) -> list[dict]:
                 "base_severity": meta["severity"],
                 "severity_reason": hit.severity_reason,
                 "cis": meta.get("cis"),
+                "caveat": meta.get("caveat"),
                 "remediation": meta["remediation"],
                 "resource": hit.resource,
                 "resource_name": hit.name or hit.resource.split("/")[-1],
