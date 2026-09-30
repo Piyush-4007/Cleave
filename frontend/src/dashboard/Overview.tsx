@@ -63,7 +63,7 @@ function CleanResult({ data }: { data: Analysis }) {
         </button>
         <button onClick={() => nav("/dashboard/connect")}
           className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-4 py-2 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--accent)]">
-          different account <ArrowRight size={13} />
+          account details <ArrowRight size={13} />
         </button>
       </div>
       {err && <p className="mt-4 text-[13px] text-[color:var(--text-2)]">{err}</p>}

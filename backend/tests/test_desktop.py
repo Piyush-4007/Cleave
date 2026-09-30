@@ -69,6 +69,10 @@ def test_scan_is_persisted_and_reloaded_after_restart(monkeypatch, tmp_path, fre
     assert (tmp_path / "fixture.json").exists()
     assert json.loads((tmp_path / "_meta.json").read_text())["account"] == "111122223333"
     assert status["last_scan"]["account"] == "111122223333"
+    ls = status["last_scan"]
+    assert (ls["principal_type"], ls["principal_name"]) == ("user", "x")
+    assert ls["resources"] == len(fx["records"]) and ls["duration_s"] >= 0
+    assert ls["admin_credentials"] is False  # "x" is not in the fixture graph
 
     # "restart": wipe memory, rebuild from disk only
     service._STATE.update(graph=None, analysis=None, source=None, account=None)

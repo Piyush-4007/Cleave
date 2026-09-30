@@ -56,6 +56,15 @@ export interface CutEdge {
 export interface ScanInfo {
   mode: "login" | "role" | "cli";
   scanned_at: string; // ISO
+  // who the scan ran as (absent on older saved scans)
+  alias?: string | null;
+  arn?: string;
+  principal_type?: "user" | "role" | "root" | "unknown";
+  principal_name?: string;
+  role_arn?: string | null; // the role assumed, in role mode (lets "rescan" repeat it)
+  admin_credentials?: boolean | null;
+  resources?: number;
+  duration_s?: number;
 }
 
 export interface Analysis {
@@ -181,7 +190,7 @@ function mapLive(a: any): Analysis {
     source: a.source ?? "neo4j",
     account: a.account ?? "connected account",
     generated_at: a.generated_at ?? new Date().toISOString(),
-    scan: a.last_scan ? { mode: a.last_scan.mode, scanned_at: a.last_scan.scanned_at } : undefined,
+    scan: a.last_scan ?? undefined,
     summary: {
       resources: a.graph?.nodes ?? 0,
       sources: a.summary?.sources ?? 0,

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Check, ShieldCheck, ArrowRight, CircleNotch, Cloud, Lock } from "@phosphor-icons/react";
-import { connect } from "./api";
+import { Copy, Check, ShieldCheck, ArrowRight, ArrowLeft, ArrowClockwise, CircleNotch, Cloud, Lock, Warning } from "@phosphor-icons/react";
+import { connect, type Analysis } from "./api";
 import { useAnalysis } from "./useAnalysis";
 
 const SNIPPET = `# Run in your own AWS account. Creates a read-only role Cleave assumes.
@@ -20,9 +20,90 @@ output "role_arn" { value = aws_iam_role.cleave_audit.arn }`;
 
 const ARN_RE = /^arn:aws:iam::\d{12}:role\/.+/;
 
+function when(iso: string): string {
+  return new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[130px_1fr] gap-4 border-t border-[color:var(--line)] py-3 first:border-t-0 sm:grid-cols-[160px_1fr]">
+      <dt className="mono text-[11.5px] uppercase tracking-[0.12em] text-[color:var(--dim)]">{label}</dt>
+      <dd className="min-w-0 break-words text-[14px] text-[color:var(--text)]">{children}</dd>
+    </div>
+  );
+}
+
+/** Once an account is connected, this replaces the connect form: who, which account,
+ *  how, and when, so there is no doubt it is connected. The form is one click away. */
+function AccountCard({ data, busy, onRescan, onSwitch }: {
+  data: Analysis; busy: boolean; onRescan: () => void; onSwitch: () => void;
+}) {
+  const s = data.scan!;
+  const who = s.principal_type === "root" ? "root account" : s.principal_name ?? "unknown identity";
+  const kind = s.principal_type === "role" ? "IAM role" : s.principal_type === "user" ? "IAM user" : "";
+  const n = data.summary.paths_found;
+  return (
+    <div className="mt-9 rounded-xl border border-[color:var(--line)] bg-[color:var(--panel)] p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mono inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.14em] text-[color:var(--accent)]">
+          <span className="h-2 w-2 rounded-full bg-[color:var(--accent)]" /> connected
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onRescan} disabled={busy}
+            className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--accent)] px-3.5 py-1.5 text-[12px] text-[color:var(--text)] disabled:opacity-60">
+            {busy ? <CircleNotch size={13} className="animate-spin" /> : <ArrowClockwise size={13} />}
+            {busy ? "scanning…" : "rescan"}
+          </button>
+          <button onClick={onSwitch} disabled={busy}
+            className="mono inline-flex items-center gap-2 rounded-md border border-[color:var(--line)] px-3.5 py-1.5 text-[12px] text-[color:var(--text-2)] hover:border-[color:var(--accent)] disabled:opacity-60">
+            switch account <ArrowRight size={13} />
+          </button>
+        </div>
+      </div>
+
+      <h2 className="display mt-4 text-[26px] leading-tight">{s.alias || `Account ${data.account}`}</h2>
+      <dl className="mt-4">
+        <Row label="Account ID">
+          <span className="mono">{data.account}</span>
+          {s.alias && <span className="text-[color:var(--muted)]"> · alias {s.alias}</span>}
+        </Row>
+        <Row label="Signed in as">
+          {who}{kind && <span className="text-[color:var(--muted)]"> · {kind}</span>}
+        </Row>
+        {s.arn && <Row label="ARN"><span className="mono text-[12.5px] text-[color:var(--text-2)]">{s.arn}</span></Row>}
+        <Row label="Connected via">
+          {s.mode === "role"
+            ? <>read-only role <span className="mono text-[12.5px] text-[color:var(--text-2)]">{s.role_arn}</span></>
+            : s.mode === "login" ? "your AWS login on this machine" : "command-line scan"}
+        </Row>
+        <Row label="Last scan">
+          {when(s.scanned_at)}
+          <span className="text-[color:var(--muted)]">
+            {s.resources != null && <> · {s.resources.toLocaleString()} resources</>}
+            {s.duration_s != null && <> · {s.duration_s}s</>}
+            {" · "}{n} attack path{n === 1 ? "" : "s"}
+          </span>
+        </Row>
+      </dl>
+
+      {s.admin_credentials && (
+        <div className="mt-4 flex gap-3 rounded-lg border border-[color:var(--line)] bg-[color:var(--bg)] px-4 py-3 text-[13px] text-[color:var(--text-2)]">
+          <Warning size={17} className="accent mt-0.5 shrink-0" weight="fill" />
+          <span>
+            These credentials have <b className="text-[color:var(--text)]">full admin</b> rights. Cleave only
+            ever makes read calls, but connecting through a read-only role is the safer habit.
+            Use <i>switch account</i> to set one up.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Connect() {
   const nav = useNavigate();
-  const { reload } = useAnalysis();
+  const { reload, data } = useAnalysis();
+  const [switching, setSwitching] = useState(false);
   const [busy, setBusy] = useState<"login" | "role" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showRole, setShowRole] = useState(false);
@@ -30,11 +111,11 @@ export function Connect() {
   const [arn, setArn] = useState("");
   const valid = ARN_RE.test(arn.trim());
 
-  const doConnect = async (mode: "login" | "role") => {
+  const doConnect = async (mode: "login" | "role", roleArn?: string) => {
     setBusy(mode);
     setError(null);
     try {
-      await connect(mode, mode === "role" ? arn.trim() : undefined);
+      await connect(mode, mode === "role" ? (roleArn ?? arn.trim()) : undefined);
       reload();
       nav("/dashboard");
     } catch (e) {
@@ -50,8 +131,44 @@ export function Connect() {
     });
   };
 
+  const connected = !!data?.scan && data.source !== "mock";
+  const rescan = () => {
+    const sc = data!.scan!;
+    if (sc.mode === "role" && sc.role_arn) doConnect("role", sc.role_arn);
+    else if (sc.mode === "login") doConnect("login");
+    else setSwitching(true); // a command-line scan: choose how to connect
+  };
+
+  if (connected && !switching) {
+    return (
+      <div className="mx-auto max-w-[760px] px-6 py-14 sm:px-8">
+        <div className="mono text-[12px] uppercase tracking-[0.16em] text-[color:var(--dim)]">Account</div>
+        <h1 className="display mt-3 text-[34px] leading-tight sm:text-[44px]">Connected.</h1>
+        <p className="mt-4 max-w-[56ch] text-[16px] leading-relaxed text-[color:var(--text-2)]">
+          Everything in this dashboard comes from the scan below. Rescan to refresh it.
+        </p>
+        <AccountCard data={data!} busy={busy !== null} onRescan={rescan} onSwitch={() => setSwitching(true)} />
+        {error && (
+          <div className="mono mt-5 rounded-lg border border-[color:var(--cut)]/40 bg-[color:var(--cut)]/8 px-4 py-3 text-[12.5px] cut">
+            {error}
+          </div>
+        )}
+        <div className="mono mt-12 flex items-center gap-2 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)]/50 px-4 py-3 text-[12px] text-[color:var(--muted)]">
+          <ShieldCheck size={16} className="accent shrink-0" weight="fill" />
+          Read-only. No write access, no keys stored, nothing uploaded.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[760px] px-6 py-14 sm:px-8">
+      {connected && (
+        <button onClick={() => setSwitching(false)}
+          className="mono mb-6 inline-flex items-center gap-2 text-[12.5px] text-[color:var(--muted)] hover:text-[color:var(--text)]">
+          <ArrowLeft size={13} /> back to {data!.scan!.alias || data!.account}
+        </button>
+      )}
       <div className="mono text-[12px] uppercase tracking-[0.16em] text-[color:var(--dim)]">Connect</div>
       <h1 className="display mt-3 text-[34px] leading-tight sm:text-[44px]">Connect an AWS account.</h1>
       <p className="mt-4 max-w-[56ch] text-[16px] leading-relaxed text-[color:var(--text-2)]">

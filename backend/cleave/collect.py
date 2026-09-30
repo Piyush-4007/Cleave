@@ -61,6 +61,16 @@ def write_raw(outdir: pathlib.Path, collected: dict[str, list], findings: list,
     return summary
 
 
+def account_alias(session) -> str | None:
+    """The account's friendly name, if one is set (iam:ListAccountAliases: free, and in
+    SecurityAudit). Display only — never used to decide anything."""
+    try:
+        aliases = session.client("iam").list_account_aliases().get("AccountAliases") or []
+        return aliases[0] if aliases else None
+    except Exception:  # noqa: BLE001 - a nicety; its absence must not fail a scan
+        return None
+
+
 def collect_records(session, credscan: bool = False) -> dict:
     """Run every collector against a session and return everything in memory (no files
     written). This is what the API's on-demand scan uses; the CLI `run()` wraps it and
@@ -83,6 +93,7 @@ def collect_records(session, credscan: bool = False) -> dict:
     return {
         "account": ident.get("Account", ""),
         "arn": ident.get("Arn", ""),
+        "alias": account_alias(session),
         "records": records,
         "cred_findings": findings,
         "by_collector": collected,

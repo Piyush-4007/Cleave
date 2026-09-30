@@ -10,9 +10,11 @@ import json
 import logging
 import pathlib
 import threading
+import time
 from ..config import settings
 from ..paths.analysis import analyze, path_subgraph
 from ..paths.graphview import graph_from_neo4j, graph_from_records
+from ..identity import caller_identity
 
 log = logging.getLogger("cleave.api")
 
@@ -92,19 +94,28 @@ def run_scan(mode: str, role_arn: str | None = None) -> dict:
     with _LOCK:
         _STATE["scanning"] = True
     try:
+        started = time.perf_counter()
         session = aws_session.build_session_for(role_arn if mode == "role" else None)
         scan = collect.collect_records(session, credscan=settings.cleave_credscan)
+        g = graph_from_records(scan["records"], scan["cred_findings"])
+        analysis = analyze(g)
+        # Who/what was scanned, for the connected-account panel. Saved with the dump so a
+        # restart shows the same panel without re-scanning.
+        meta = {
+            "account": scan["account"], "alias": scan.get("alias"), "mode": mode,
+            "role_arn": role_arn if mode == "role" else None,
+            "scanned_at": datetime.now(timezone.utc).isoformat(),
+            "duration_s": round(time.perf_counter() - started, 1),
+            "resources": len(scan["records"]),
+            **caller_identity(scan["arn"], g),
+        }
         # Persist it, so a restart (or the desktop app reopening) shows this scan again.
         # A write failure costs persistence, never the scan result.
         try:
             collect.write_raw(pathlib.Path(settings.cleave_output_dir), scan["by_collector"],
-                              scan["cred_findings"], meta={
-                                  "account": scan["account"], "arn": scan["arn"], "mode": mode,
-                                  "scanned_at": datetime.now(timezone.utc).isoformat()})
+                              scan["cred_findings"], meta=meta)
         except OSError as e:
             log.warning("could not persist scan to %s: %s", settings.cleave_output_dir, e)
-        g = graph_from_records(scan["records"], scan["cred_findings"])
-        analysis = analyze(g)
         with _LOCK:
             _STATE.update(graph=g, analysis=analysis, source="scan",
                           account=scan["account"], connected=True, mode=mode, scanning=False)

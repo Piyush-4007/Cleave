@@ -17,10 +17,16 @@ const TABS = [
 
 function AccountBadge() {
   const { data } = useAnalysis();
+  const sc = data?.source !== "mock" ? data?.scan : undefined;
+  const label = !data ? "connecting…"
+    : !sc ? `acct ${data.account}`
+    : `${sc.principal_name ?? "?"} · ${sc.alias || data.account}`;
   return (
-    <Link to="/dashboard/connect" className="flex items-center gap-3 no-underline" title="Manage connection">
-      <span className="mono text-[12px] text-[color:var(--muted)] hover:text-[color:var(--text)]">
-        {data ? `acct ${data.account}` : "connecting…"}
+    <Link to="/dashboard/connect" className="flex items-center gap-3 no-underline"
+      title={sc?.arn ? `${sc.arn} (manage connection)` : "Manage connection"}>
+      <span className="mono inline-flex items-center gap-2 text-[12px] text-[color:var(--muted)] hover:text-[color:var(--text)]">
+        {sc && <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" aria-label="connected" />}
+        {label}
       </span>
       <span className="mono inline-flex items-center gap-1.5 rounded border border-[color:var(--line)] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[color:var(--accent)]">
         <ShieldCheck size={13} weight="fill" /> read-only
