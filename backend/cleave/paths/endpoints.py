@@ -129,12 +129,15 @@ def _workload_roles(g: nx.DiGraph) -> dict[str, str]:
     instance profile). Compromising that workload is how an attacker holds the role."""
     profile_roles = {uid: (d.get("record") or {}).get("Roles", [])
                      for uid, d in g.nodes(data=True) if d.get("label") == "IamInstanceProfile"}
+    workload_label = {"LambdaFunction": "Lambda", "GlueJob": "Glue job",
+                      "SageMakerNotebook": "SageMaker notebook",
+                      "CodeBuildProject": "CodeBuild project", "EcsService": "ECS service"}
     out: dict[str, str] = {}
     for uid, d in g.nodes(data=True):
-        rec = d.get("record") or {}
-        if d.get("label") == "LambdaFunction" and rec.get("Role"):
-            out.setdefault(rec["Role"], f"Lambda {rec.get('FunctionName') or uid}")
-        elif d.get("label") == "Ec2Instance" and rec.get("IamInstanceProfile"):
+        rec, label = d.get("record") or {}, d.get("label")
+        if label in workload_label and rec.get("Role"):
+            out.setdefault(rec["Role"], f"{workload_label[label]} {rec.get('Name') or rec.get('FunctionName') or uid}")
+        elif label == "Ec2Instance" and rec.get("IamInstanceProfile"):
             for role in profile_roles.get(rec["IamInstanceProfile"], []):
                 out.setdefault(role, f"EC2 instance {rec.get('InstanceId') or uid}")
     return out

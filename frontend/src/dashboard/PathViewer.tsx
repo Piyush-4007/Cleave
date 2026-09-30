@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Globe, Desktop, IdentificationBadge, UserCircle, Package, Lightning, Database,
-  FileText, Crown, ArrowRight,
+  FileText, Crown, ArrowRight, Gear,
 } from "@phosphor-icons/react";
 import { useAnalysis } from "./useAnalysis";
 import type { AttackPath, PathNode, CutEdge } from "./api";
@@ -10,6 +10,8 @@ import type { AttackPath, PathNode, CutEdge } from "./api";
 const ICON: Record<string, React.ElementType> = {
   internet: Globe, ec2: Desktop, role: IdentificationBadge, user: UserCircle,
   s3: Package, lambda: Lightning, rds: Database, policy: FileText, admin: Crown,
+  glue: Gear, sagemaker: Gear, codebuild: Gear, ecs: Package, secret: FileText,
+  kms: FileText, sns: Lightning, sqs: Lightning, ecr: Package,
 };
 
 function recommendedCut(path: AttackPath, fixes: CutEdge[]): number {

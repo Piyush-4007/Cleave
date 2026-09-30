@@ -26,6 +26,9 @@ NODE_LABELS = {
     # account-level facts + extra inventory for the findings layer (1 Oct)
     "IamCredentialReport", "IamPasswordPolicy", "IamAccountSummary", "EbsVolume",
     "EbsDefaults", "CloudTrailTrail", "CloudTrailStatus",
+    # role-carrying workloads + resource-policy holders (1 Oct)
+    "GlueJob", "SageMakerNotebook", "CodeBuildProject", "EcsService",
+    "SnsTopic", "SqsQueue", "EcrRepository",
 }
 EDGE_TYPES = {
     # structural (Phase 2)
@@ -180,6 +183,12 @@ def derive_structural_edges(records: list[dict]) -> Iterable[dict]:
         if t == "LambdaFunction" and r.get("Role"):
             yield _edge(r["_id"], r["Role"], "EXECUTES_AS",
                         "function runs as this role", f"{r['_id']}#Role")
+
+        # Other role-carrying workloads: each runs as its role, so compromising the
+        # workload yields that role (endpoints.py treats the role as a possible source).
+        if t in ("GlueJob", "SageMakerNotebook", "CodeBuildProject", "EcsService") and r.get("Role"):
+            yield _edge(r["_id"], r["Role"], "EXECUTES_AS",
+                        f"{t} runs as this role", f"{r['_id']}#Role")
 
         if t == "IamRole" and isinstance(r.get("TrustPolicy"), dict):
             for principal in _trust_principals(r["TrustPolicy"]):

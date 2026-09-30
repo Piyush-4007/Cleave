@@ -201,3 +201,57 @@ def test_update_function_code_on_an_admin_function_still_reaches_admin():
                                            LAMBDA_ROLE, fn, ADMIN]))
     assert [[h.rel for h in p.hops] for p in found] == \
            [["CAN_WRITE", "EXECUTES_AS", "HAS_ATTACHED", "GRANTS_ADMIN"]]
+
+
+# ---- 5. launch model covers every compute service that can carry a role ----------------
+
+import pytest
+from cleave.iam.catalogue import LAUNCH_SERVICES
+
+
+def admin_role_trusting(service):
+    return admin_role("target", {"Service": service})
+
+
+LAUNCH_CASES = [
+    ("ecs-tasks.amazonaws.com", ["ecs:RegisterTaskDefinition", "ecs:RunTask"]),
+    ("glue.amazonaws.com", ["glue:CreateDevEndpoint"]),
+    ("sagemaker.amazonaws.com", ["sagemaker:CreateTrainingJob"]),
+    ("codebuild.amazonaws.com", ["codebuild:CreateProject", "codebuild:StartBuild"]),
+    ("cloudformation.amazonaws.com", ["cloudformation:CreateStack"]),
+]
+
+
+@pytest.mark.parametrize("service,actions", LAUNCH_CASES, ids=[c[0] for c in LAUNCH_CASES])
+def test_compute_service_can_launch_as_a_role_it_is_trusted_by(service, actions):
+    role = admin_role_trusting(service)
+    g = graph_from_records([user("dev", "iam:PassRole", *actions), role, ADMIN])
+    assert "CAN_LAUNCH_AS" in rels_between(g, f"{A}user/dev", role["_id"])
+    assert len(find_paths(g)) == 1
+
+
+@pytest.mark.parametrize("service,actions", LAUNCH_CASES, ids=[c[0] for c in LAUNCH_CASES])
+def test_launch_needs_all_required_actions(service, actions):
+    """A service that needs two actions is not launchable with only one of them."""
+    if len(actions) < 2:
+        pytest.skip("single-action service")
+    role = admin_role_trusting(service)
+    g = graph_from_records([user("dev", "iam:PassRole", actions[0]), role, ADMIN])
+    assert "CAN_LAUNCH_AS" not in rels_between(g, f"{A}user/dev", role["_id"])
+
+
+def test_launch_still_needs_the_trust(self=None):
+    """glue:CreateDevEndpoint + PassRole to a role that does NOT trust Glue reaches nothing."""
+    role = admin_role("target", {"Service": "lambda.amazonaws.com"})
+    g = graph_from_records([user("dev", "iam:PassRole", "glue:CreateDevEndpoint"), role, ADMIN])
+    assert "CAN_LAUNCH_AS" not in rels_between(g, f"{A}user/dev", role["_id"])
+
+
+def test_launch_actions_are_all_enabling_primitives_not_admin_equivalent():
+    """Every launch action must be an enabling primitive (needs PassRole), never admin alone,
+    or grants_admin would fire a false Certain path from the action by itself."""
+    from cleave.iam.catalogue import ADMIN_EQUIVALENT_ACTIONS, ENABLING_PRIMITIVES
+    for actions in LAUNCH_SERVICES.values():
+        for a in actions:
+            assert a in ENABLING_PRIMITIVES, a
+            assert a not in ADMIN_EQUIVALENT_ACTIONS, a

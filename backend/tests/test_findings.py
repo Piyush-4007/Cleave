@@ -108,6 +108,10 @@ def key(**kw):
             "KeySpec": "SYMMETRIC_DEFAULT", "KeyRotationEnabled": True, "Policy": {}, **kw}
 
 
+def resource_policy_node(_type, name_field="Name", **kw):
+    return {"_type": _type, "_id": f"arn:{_type}:x", name_field: "r", "Region": "us-east-1", **kw}
+
+
 def trail(**kw):
     return {"_type": "CloudTrailTrail", "_id": "arn:aws:cloudtrail:us-east-1:111122223333:trail/t",
             "Name": "t", "HomeRegion": "us-east-1", "IsMultiRegionTrail": True, "IsLogging": True,
@@ -194,7 +198,14 @@ CASES = [
     ("CLOUDTRAIL.NOT_ENABLED", [CT_OK], [CT_OK, trail()]),
     ("CLOUDTRAIL.NO_LOG_VALIDATION", [CT_OK, trail(LogFileValidationEnabled=False)], [CT_OK, trail()]),
     ("CLOUDTRAIL.NOT_KMS_ENCRYPTED", [CT_OK, trail(KmsKeyId=None)], [CT_OK, trail()]),
+    ("SNS.PUBLIC_POLICY", [resource_policy_node("SnsTopic", Policy=PUBLIC_STMT)],
+     [resource_policy_node("SnsTopic", Policy=None)]),
+    ("SQS.PUBLIC_POLICY", [resource_policy_node("SqsQueue", Policy=PUBLIC_STMT)],
+     [resource_policy_node("SqsQueue", Policy=None)]),
+    ("ECR.PUBLIC_POLICY", [resource_policy_node("EcrRepository", Policy=PUBLIC_STMT)],
+     [resource_policy_node("EcrRepository", Policy=None)]),
 ]
+
 
 
 def test_every_check_has_a_catalog_entry_and_a_test_case():

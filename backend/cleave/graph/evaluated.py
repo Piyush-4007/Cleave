@@ -9,6 +9,7 @@ Pure transform over normalised records — no AWS calls.
 """
 from __future__ import annotations
 from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
+from ..iam.catalogue import LAUNCH_SERVICES
 from ..reachability.engine import compute_reach
 from ..credscan import credential_edges
 
@@ -35,11 +36,6 @@ def policy_documents(records: list[dict]):
                 if doc:
                     yield (f"{r['_id']}#inline/{pname}", doc,
                            f"{r['_id']}#InlinePolicies/{pname}")
-
-
-# The compute services a role can ride on, keyed by the service principal it must trust.
-LAUNCH_SERVICES = {"lambda.amazonaws.com": "lambda:CreateFunction",
-                   "ec2.amazonaws.com": "ec2:RunInstances"}
 
 
 def trust_principals(role: dict) -> tuple[set[str], bool]:
@@ -111,7 +107,9 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
         docs = eff_docs(pr)
         if not docs:
             continue
-        compute = {svc: is_allowed(docs, action, "*") for svc, action in LAUNCH_SERVICES.items()}
+        # Evaluate each launch service's required action(s) once for this principal.
+        compute = {svc: [is_allowed(docs, a, "*") for a in actions]
+                   for svc, actions in LAUNCH_SERVICES.items()}
         add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*")
         create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*")
         can_fill_profile = add_to_profile.decision is Decision.ALLOW and (
@@ -126,11 +124,12 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                                pr_res.reason, f"{pr['_id']}#effective-policies", pr_res.bucket))
 
             trusted, _ = trust_principals(role)
-            for svc, action in LAUNCH_SERVICES.items():
-                res = compute[svc]
-                if svc not in trusted or res.decision is not Decision.ALLOW:
-                    continue
-                steps, buckets = [action], [pr_res.bucket, res.bucket]
+            for svc, actions in LAUNCH_SERVICES.items():
+                results = compute[svc]
+                if svc not in trusted or any(r.decision is not Decision.ALLOW for r in results):
+                    continue  # role does not trust this service, or a required action is missing
+                steps = list(actions)
+                buckets = [pr_res.bucket, *(r.bucket for r in results)]
                 if svc == "ec2.amazonaws.com" and role["_id"] not in in_a_profile:
                     if not can_fill_profile:
                         continue  # no instance profile can carry it

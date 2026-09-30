@@ -1,159 +1,297 @@
 {
   "_about": "Per-resource security checks (the Nessus-style layer). Base severity is fixed per check and editable here; a check may raise or lower it for a stated reason (e.g. IMDSv1 on an instance that carries a role). 'cis' maps to the CIS AWS Foundations Benchmark v3.0.0 where one applies. Cleave's own ranking on top (on an attack path first) is applied in findings/engine.py, not here.",
   "IAM.ROOT_MFA": {
-    "title": "Root account has no MFA", "severity": "critical", "service": "IAM", "cis": "1.5",
+    "title": "Root account has no MFA",
+    "severity": "critical",
+    "service": "IAM",
+    "cis": "1.5",
     "remediation": "Enable MFA on the root user (a hardware key is best), then stop using root for daily work."
   },
   "IAM.ROOT_KEYS": {
-    "title": "Root account has access keys", "severity": "critical", "service": "IAM", "cis": "1.4",
+    "title": "Root account has access keys",
+    "severity": "critical",
+    "service": "IAM",
+    "cis": "1.4",
     "remediation": "Delete the root user's access keys. Use IAM roles or users with scoped permissions instead."
   },
   "IAM.ROOT_RECENTLY_USED": {
-    "title": "Root account used in the last 90 days", "severity": "medium", "service": "IAM", "cis": "1.7",
+    "title": "Root account used in the last 90 days",
+    "severity": "medium",
+    "service": "IAM",
+    "cis": "1.7",
     "remediation": "Do daily administration through IAM identities; keep root for the few tasks that require it."
   },
   "IAM.USER_NO_MFA": {
-    "title": "Console user without MFA", "severity": "high", "service": "IAM", "cis": "1.10",
+    "title": "Console user without MFA",
+    "severity": "high",
+    "service": "IAM",
+    "cis": "1.10",
     "remediation": "Enable MFA for this user, or remove the console password if they only need API access."
   },
   "IAM.CREDENTIALS_UNUSED": {
-    "title": "Credential unused for 45+ days", "severity": "medium", "service": "IAM", "cis": "1.12",
+    "title": "Credential unused for 45+ days",
+    "severity": "medium",
+    "service": "IAM",
+    "cis": "1.12",
     "remediation": "Deactivate or delete the unused password / access key. Unused credentials are pure risk."
   },
   "IAM.KEY_NOT_ROTATED": {
-    "title": "Access key older than 90 days", "severity": "medium", "service": "IAM", "cis": "1.14",
+    "title": "Access key older than 90 days",
+    "severity": "medium",
+    "service": "IAM",
+    "cis": "1.14",
     "remediation": "Rotate the key: create a new one, move workloads to it, then deactivate and delete the old one."
   },
   "IAM.MULTIPLE_ACTIVE_KEYS": {
-    "title": "User has two active access keys", "severity": "low", "service": "IAM", "cis": "1.13",
+    "title": "User has two active access keys",
+    "severity": "low",
+    "service": "IAM",
+    "cis": "1.13",
     "remediation": "Keep one active key per user; deactivate the other once nothing uses it."
   },
   "IAM.NO_PASSWORD_POLICY": {
-    "title": "No account password policy", "severity": "medium", "service": "IAM", "cis": "1.8",
+    "title": "No account password policy",
+    "severity": "medium",
+    "service": "IAM",
+    "cis": "1.8",
     "remediation": "Set a password policy: minimum length 14 and prevent reuse of the last 24 passwords."
   },
   "IAM.WEAK_PASSWORD_POLICY": {
-    "title": "Password policy weaker than CIS baseline", "severity": "low", "service": "IAM", "cis": "1.8",
+    "title": "Password policy weaker than CIS baseline",
+    "severity": "low",
+    "service": "IAM",
+    "cis": "1.8",
     "remediation": "Raise the minimum length to 14 and prevent reuse of the last 24 passwords."
   },
   "IAM.USER_DIRECT_POLICY": {
-    "title": "Permissions attached directly to a user", "severity": "low", "service": "IAM", "cis": "1.15",
+    "title": "Permissions attached directly to a user",
+    "severity": "low",
+    "service": "IAM",
+    "cis": "1.15",
     "remediation": "Grant permissions through groups or roles, so access is reviewed and revoked in one place."
   },
   "IAM.FULL_ADMIN_POLICY": {
-    "title": "Customer policy grants full admin (*:*)", "severity": "high", "service": "IAM", "cis": "1.16",
+    "title": "Customer policy grants full admin (*:*)",
+    "severity": "high",
+    "service": "IAM",
+    "cis": "1.16",
     "remediation": "Replace '*:*' with the actions and resources the holder actually needs."
   },
   "IAM.ESCALATION_PRIMITIVE": {
-    "title": "Policy grants a privilege-escalation action", "severity": "high", "service": "IAM", "cis": null,
+    "title": "Policy grants a privilege-escalation action",
+    "severity": "high",
+    "service": "IAM",
+    "cis": null,
     "remediation": "Remove the admin-equivalent action (e.g. iam:CreatePolicyVersion, iam:AttachUserPolicy) or scope it to specific resources."
   },
   "IAM.ROLE_TRUSTS_ANYONE": {
-    "title": "Role trust policy allows any principal", "severity": "critical", "service": "IAM", "cis": null,
+    "title": "Role trust policy allows any principal",
+    "severity": "critical",
+    "service": "IAM",
+    "cis": null,
     "remediation": "Name the specific principals allowed to assume the role instead of '*'."
   },
   "IAM.ROLE_CROSS_ACCOUNT_NO_EXTERNAL_ID": {
-    "title": "Cross-account role trust without an external ID", "severity": "medium", "service": "IAM", "cis": null,
+    "title": "Cross-account role trust without an external ID",
+    "severity": "medium",
+    "service": "IAM",
+    "cis": null,
     "remediation": "Add an sts:ExternalId condition to the trust policy (the confused-deputy protection)."
   },
   "CRED.KEY_IN_S3": {
-    "title": "AWS access key found in an S3 object", "severity": "critical", "service": "S3", "cis": null,
+    "title": "AWS access key found in an S3 object",
+    "severity": "critical",
+    "service": "S3",
+    "cis": null,
     "remediation": "Deactivate the exposed key immediately, delete the object, and rotate anything the key could reach."
   },
   "S3.PUBLIC_BUCKET": {
-    "title": "S3 bucket is publicly accessible", "severity": "critical", "service": "S3", "cis": "2.1.4",
+    "title": "S3 bucket is publicly accessible",
+    "severity": "critical",
+    "service": "S3",
+    "cis": "2.1.4",
     "remediation": "Remove the public grant (policy Principal '*' or AllUsers ACL) and enable Block Public Access."
   },
   "S3.BLOCK_PUBLIC_ACCESS_OFF": {
-    "title": "S3 Block Public Access not fully enabled", "severity": "medium", "service": "S3", "cis": "2.1.4",
+    "title": "S3 Block Public Access not fully enabled",
+    "severity": "medium",
+    "service": "S3",
+    "cis": "2.1.4",
     "remediation": "Turn on all four Block Public Access settings for the bucket (and at account level)."
   },
   "S3.NO_DEFAULT_ENCRYPTION": {
-    "title": "S3 bucket has no default encryption", "severity": "low", "service": "S3", "cis": null,
+    "title": "S3 bucket has no default encryption",
+    "severity": "low",
+    "service": "S3",
+    "cis": null,
     "remediation": "Enable default encryption (SSE-S3 or SSE-KMS) on the bucket."
   },
   "EC2.IMDSV1_ALLOWED": {
-    "title": "Instance allows IMDSv1", "severity": "medium", "service": "EC2", "cis": "5.6",
+    "title": "Instance allows IMDSv1",
+    "severity": "medium",
+    "service": "EC2",
+    "cis": "5.6",
     "remediation": "Require IMDSv2 (HttpTokens=required). IMDSv1 is how SSRF bugs steal instance-role credentials."
   },
   "EC2.PUBLIC_IP": {
-    "title": "Instance has a public IP", "severity": "info", "service": "EC2", "cis": null,
+    "title": "Instance has a public IP",
+    "severity": "info",
+    "service": "EC2",
+    "cis": null,
     "remediation": "Only expose instances that must be reachable; put others behind a load balancer or private subnet."
   },
   "EC2.EBS_UNENCRYPTED": {
-    "title": "EBS volume is unencrypted", "severity": "low", "service": "EC2", "cis": null,
+    "title": "EBS volume is unencrypted",
+    "severity": "low",
+    "service": "EC2",
+    "cis": null,
     "remediation": "Snapshot the volume, copy the snapshot with encryption on, and replace the volume."
   },
   "EC2.EBS_DEFAULT_ENCRYPTION_OFF": {
-    "title": "EBS encryption-by-default is off", "severity": "medium", "service": "EC2", "cis": "2.2.1",
+    "title": "EBS encryption-by-default is off",
+    "severity": "medium",
+    "service": "EC2",
+    "cis": "2.2.1",
     "remediation": "Enable EBS encryption by default in every region you use (a per-region account setting)."
   },
   "VPC.SG_ALL_TRAFFIC_OPEN": {
-    "title": "Security group allows all traffic from the internet", "severity": "critical", "service": "VPC", "cis": "5.2",
+    "title": "Security group allows all traffic from the internet",
+    "severity": "critical",
+    "service": "VPC",
+    "cis": "5.2",
     "remediation": "Replace the 0.0.0.0/0 all-traffic rule with the specific ports and sources needed."
   },
   "VPC.SG_ADMIN_PORTS_OPEN": {
-    "title": "SSH/RDP open to the internet", "severity": "high", "service": "VPC", "cis": "5.2",
+    "title": "SSH/RDP open to the internet",
+    "severity": "high",
+    "service": "VPC",
+    "cis": "5.2",
     "remediation": "Restrict port 22/3389 to known IPs, or use SSM Session Manager and close them entirely."
   },
   "VPC.SG_DATABASE_PORTS_OPEN": {
-    "title": "Database port open to the internet", "severity": "high", "service": "VPC", "cis": null,
+    "title": "Database port open to the internet",
+    "severity": "high",
+    "service": "VPC",
+    "cis": null,
     "remediation": "Databases should never accept connections from 0.0.0.0/0; restrict to application security groups."
   },
   "VPC.DEFAULT_SG_NOT_RESTRICTED": {
-    "title": "Default security group allows traffic", "severity": "low", "service": "VPC", "cis": "5.4",
+    "title": "Default security group allows traffic",
+    "severity": "low",
+    "service": "VPC",
+    "cis": "5.4",
     "remediation": "Remove all rules from the default security group so nothing is attached to it by accident."
   },
   "VPC.NACL_ADMIN_PORTS_OPEN": {
-    "title": "Network ACL allows SSH/RDP from the internet", "severity": "low", "service": "VPC", "cis": "5.1",
+    "title": "Network ACL allows SSH/RDP from the internet",
+    "severity": "low",
+    "service": "VPC",
+    "cis": "5.1",
     "remediation": "Deny inbound 22/3389 from 0.0.0.0/0 in the network ACL (defence in depth behind security groups)."
   },
   "LAMBDA.URL_NO_AUTH": {
-    "title": "Lambda function URL needs no authentication", "severity": "high", "service": "Lambda", "cis": null,
+    "title": "Lambda function URL needs no authentication",
+    "severity": "high",
+    "service": "Lambda",
+    "cis": null,
     "remediation": "Set the function URL AuthType to AWS_IAM, or remove the URL if it is not meant to be public."
   },
   "LAMBDA.SECRET_IN_ENV": {
-    "title": "Possible secret in Lambda environment variables", "severity": "medium", "service": "Lambda", "cis": null,
+    "title": "Possible secret in Lambda environment variables",
+    "severity": "medium",
+    "service": "Lambda",
+    "cis": null,
     "remediation": "Move secrets to Secrets Manager or SSM Parameter Store and read them at runtime."
   },
   "LAMBDA.DEPRECATED_RUNTIME": {
-    "title": "Lambda uses a deprecated runtime", "severity": "medium", "service": "Lambda", "cis": null,
+    "title": "Lambda uses a deprecated runtime",
+    "severity": "medium",
+    "service": "Lambda",
+    "cis": null,
     "remediation": "Upgrade to a supported runtime; deprecated ones receive no security patches."
   },
   "RDS.PUBLIC": {
-    "title": "RDS instance is publicly accessible", "severity": "high", "service": "RDS", "cis": "2.3.3",
+    "title": "RDS instance is publicly accessible",
+    "severity": "high",
+    "service": "RDS",
+    "cis": "2.3.3",
     "remediation": "Set PubliclyAccessible=false and reach the database from inside the VPC."
   },
   "RDS.UNENCRYPTED": {
-    "title": "RDS storage is unencrypted", "severity": "medium", "service": "RDS", "cis": "2.3.1",
+    "title": "RDS storage is unencrypted",
+    "severity": "medium",
+    "service": "RDS",
+    "cis": "2.3.1",
     "remediation": "Encrypted storage can only be set at creation: snapshot, copy encrypted, and restore."
   },
   "RDS.NO_DELETION_PROTECTION": {
-    "title": "RDS deletion protection is off", "severity": "low", "service": "RDS", "cis": null,
+    "title": "RDS deletion protection is off",
+    "severity": "low",
+    "service": "RDS",
+    "cis": null,
     "remediation": "Enable deletion protection on databases that hold data you cannot lose."
   },
   "SECRETS.PUBLIC_POLICY": {
-    "title": "Secret's resource policy allows any principal", "severity": "critical", "service": "Secrets Manager", "cis": null,
+    "title": "Secret's resource policy allows any principal",
+    "severity": "critical",
+    "service": "Secrets Manager",
+    "cis": null,
     "remediation": "Remove Principal '*' from the secret's resource policy, or add conditions that pin it down."
   },
   "KMS.PUBLIC_POLICY": {
-    "title": "KMS key policy allows any principal", "severity": "critical", "service": "KMS", "cis": null,
+    "title": "KMS key policy allows any principal",
+    "severity": "critical",
+    "service": "KMS",
+    "cis": null,
     "remediation": "Remove Principal '*' from the key policy, or add conditions that pin it down."
   },
+  "SNS.PUBLIC_POLICY": {
+    "title": "SNS topic policy allows any principal",
+    "severity": "high",
+    "service": "SNS",
+    "cis": null,
+    "remediation": "Remove Principal '*' from the topic policy, or add conditions (e.g. aws:SourceArn) that pin down who can publish or subscribe."
+  },
+  "SQS.PUBLIC_POLICY": {
+    "title": "SQS queue policy allows any principal",
+    "severity": "high",
+    "service": "SQS",
+    "cis": null,
+    "remediation": "Remove Principal '*' from the queue policy, or add conditions that restrict who can send or receive messages."
+  },
+  "ECR.PUBLIC_POLICY": {
+    "title": "ECR repository policy allows any principal",
+    "severity": "medium",
+    "service": "ECR",
+    "cis": null,
+    "remediation": "Remove Principal '*' from the repository policy unless the images are meant to be public."
+  },
   "KMS.NO_ROTATION": {
-    "title": "KMS key rotation is off", "severity": "medium", "service": "KMS", "cis": "3.6",
+    "title": "KMS key rotation is off",
+    "severity": "medium",
+    "service": "KMS",
+    "cis": "3.6",
     "remediation": "Enable automatic rotation for customer-managed symmetric keys."
   },
   "CLOUDTRAIL.NOT_ENABLED": {
-    "title": "No multi-region CloudTrail trail is logging", "severity": "high", "service": "CloudTrail", "cis": "3.1",
+    "title": "No multi-region CloudTrail trail is logging",
+    "severity": "high",
+    "service": "CloudTrail",
+    "cis": "3.1",
     "remediation": "Create a multi-region trail that logs management events, so activity in the account is recorded."
   },
   "CLOUDTRAIL.NO_LOG_VALIDATION": {
-    "title": "CloudTrail log file validation is off", "severity": "low", "service": "CloudTrail", "cis": "3.2",
+    "title": "CloudTrail log file validation is off",
+    "severity": "low",
+    "service": "CloudTrail",
+    "cis": "3.2",
     "remediation": "Enable log file validation so tampering with the logs can be detected."
   },
   "CLOUDTRAIL.NOT_KMS_ENCRYPTED": {
-    "title": "CloudTrail logs not encrypted with KMS", "severity": "low", "service": "CloudTrail", "cis": "3.5",
+    "title": "CloudTrail logs not encrypted with KMS",
+    "severity": "low",
+    "service": "CloudTrail",
+    "cis": "3.5",
     "remediation": "Encrypt the trail's logs with a customer-managed KMS key."
   }
 }

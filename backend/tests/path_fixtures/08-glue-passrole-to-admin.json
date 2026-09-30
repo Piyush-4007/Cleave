@@ -1,0 +1,75 @@
+{
+  "name": "Glue dev-endpoint PassRole reaches admin (CloudGoat glue_privesc shape)",
+  "ground_truth": "synthetic — models the glue_privesc scenario: a developer with glue:CreateDevEndpoint + iam:PassRole hands an admin role (trusted by Glue) to a dev endpoint and runs code as it. The read-only user beside him is the control.",
+  "story": "data-dev cannot touch IAM directly, but can create a Glue development endpoint and pass cg-glue-admin-role to it. The endpoint runs his code as that role, which holds AdministratorAccess. glue-readonly has neither permission, so no path.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/data-dev",
+      "UserName": "data-dev",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/glue-dev-policy"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/glue-readonly",
+      "UserName": "glue-readonly",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/ReadOnlyAccess"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/glue-dev-policy",
+      "PolicyName": "glue-dev-policy",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["glue:CreateDevEndpoint", "glue:GetDevEndpoint", "iam:PassRole"], "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+      "PolicyName": "ReadOnlyAccess", "ManagedBy": "AWS",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["glue:Get*", "s3:Get*", "iam:Get*"], "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamRole",
+      "_id": "arn:aws:iam::111122223333:role/cg-glue-admin-role",
+      "RoleName": "cg-glue-admin-role",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+      "InlinePolicies": {},
+      "TrustPolicy": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Principal": {"Service": "glue.amazonaws.com"}, "Action": "sts:AssumeRole"}
+      ]}
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+      "PolicyName": "AdministratorAccess", "ManagedBy": "AWS",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "*", "Resource": "*"}
+      ]}
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/data-dev",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/data-dev",
+          "arn:aws:iam::111122223333:role/cg-glue-admin-role",
+          "arn:aws:iam::aws:policy/AdministratorAccess",
+          "admin"
+        ],
+        "edges": ["CAN_LAUNCH_AS", "HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain",
+        "note": "PassRole + glue:CreateDevEndpoint to a Glue-trusted admin role"
+      }
+    ],
+    "no_paths_from": ["arn:aws:iam::111122223333:user/glue-readonly"],
+    "total_paths": 1
+  }
+}

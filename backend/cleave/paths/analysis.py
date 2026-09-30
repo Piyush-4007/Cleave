@@ -21,6 +21,8 @@ LABEL_TO_TYPE = {
     "SecretsManagerSecret": "secret", "KmsKey": "kms", "Internet": "internet", "Admin": "admin",
     "SecurityGroup": "sg", "Subnet": "subnet", "Vpc": "vpc", "IamInstanceProfile": "profile",
     "Principal": "principal",
+    "GlueJob": "glue", "SageMakerNotebook": "sagemaker", "CodeBuildProject": "codebuild",
+    "EcsService": "ecs", "SnsTopic": "sns", "SqsQueue": "sqs", "EcrRepository": "ecr",
 }
 
 
@@ -102,6 +104,10 @@ def _node_detail(label: str, uid: str, rec: dict) -> dict | None:
     elif label == "RdsInstance":
         add("publicly accessible", rec.get("PubliclyAccessible"))
         add("tags", ", ".join(f"{k}={v}" for k, v in (rec.get("Tags") or {}).items()) or None)
+    elif label in ("GlueJob", "SageMakerNotebook", "CodeBuildProject", "EcsService"):
+        add("runs as", (rec.get("Role") or "").split("/")[-1] or None)
+        add("cluster", rec.get("Cluster"))
+        add("command", rec.get("Command"))
 
     if facts:
         detail["facts"] = facts

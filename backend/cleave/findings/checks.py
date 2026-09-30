@@ -589,3 +589,30 @@ def cloudtrail_kms(ctx):
         if not r.get("KmsKeyId"):
             yield Hit(uid, "no KmsKeyId on the trail", nodes=[uid], name=r.get("Name"),
                       region=r.get("HomeRegion"))
+
+
+# ---- SNS / SQS / ECR public resource policies ------------------------------------------
+
+def _public_policy_check(ctx, label, field, name_field):
+    for uid, r in ctx.of(label):
+        for st, cond in _public_statements(r.get(field)):
+            yield Hit(uid, "resource policy: Allow to Principal '*'" + (" (with conditions)" if cond else ""),
+                      nodes=[uid], name=r.get(name_field), region=r.get("Region"),
+                      severity="medium" if cond and label != "EcrRepository" else None,
+                      severity_reason="conditions may restrict access; verify them" if cond else None)
+            break
+
+
+@check("SNS.PUBLIC_POLICY")
+def sns_public(ctx):
+    yield from _public_policy_check(ctx, "SnsTopic", "Policy", "Name")
+
+
+@check("SQS.PUBLIC_POLICY")
+def sqs_public(ctx):
+    yield from _public_policy_check(ctx, "SqsQueue", "Policy", "Name")
+
+
+@check("ECR.PUBLIC_POLICY")
+def ecr_public(ctx):
+    yield from _public_policy_check(ctx, "EcrRepository", "Policy", "Name")

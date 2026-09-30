@@ -45,10 +45,24 @@ ADMIN_EQUIVALENT_ACTIONS = {
     # exist, because dropping them now would lose real paths, not just noisy ones.
 }
 
+# The compute services that can carry an IAM role, and the action(s) that land the role on
+# a new resource of that service. Each is "PassRole + these actions" AND the target role
+# must TRUST the service principal (a Glue-only role cannot ride an EC2 instance). This is
+# the general form of the Phase 0 privesc; CAN_LAUNCH_AS in graph/evaluated.py materialises
+# it. Adding a service here is how Cleave learns a new launch route.
+#   key   = the service principal the target role must trust
+#   value = every IAM action required, ALL of which the attacker must hold
+LAUNCH_SERVICES = {
+    "lambda.amazonaws.com":         ["lambda:CreateFunction"],
+    "ec2.amazonaws.com":            ["ec2:RunInstances"],   # + an instance profile (special-cased)
+    "ecs-tasks.amazonaws.com":      ["ecs:RegisterTaskDefinition", "ecs:RunTask"],
+    "glue.amazonaws.com":           ["glue:CreateDevEndpoint"],
+    "sagemaker.amazonaws.com":      ["sagemaker:CreateTrainingJob"],
+    "codebuild.amazonaws.com":      ["codebuild:CreateProject", "codebuild:StartBuild"],
+    "cloudformation.amazonaws.com": ["cloudformation:CreateStack"],
+}
+
 # Dangerous only in combination. Excluded from grants_admin() on purpose.
-# TODO v2 (Phase 7): model the remaining combinations as explicit edges the way
-# CAN_LAUNCH_AS models PassRole + compute — cloudformation:CreateStack + PassRole and
-# glue:CreateDevEndpoint + PassRole are the same shape and currently go unreported.
 ENABLING_PRIMITIVES = {
     "iam:PassRole",                       # Phase 0 scenario 2 — needs a compute action
     "iam:CreateUser",                     # a user with no permissions is not escalation
@@ -56,12 +70,10 @@ ENABLING_PRIMITIVES = {
     "iam:RemoveRoleFromInstanceProfile",
     "ec2:AssociateIamInstanceProfile",
     "ec2:ReplaceIamInstanceProfileAssociation",
-    "ec2:RunInstances",                   # needs PassRole to carry a role
-    "lambda:CreateFunction",              # needs PassRole
-    "glue:CreateDevEndpoint",             # needs PassRole
-    "cloudformation:CreateStack",         # needs PassRole
     "sts:AssumeRole",                     # the role's trust policy decides; see CAN_ASSUME
     "lambda:UpdateFunctionCode",          # = that function's role; see CAN_WRITE -> EXECUTES_AS
+    # every launch action (needs PassRole + a service-trusting role; see CAN_LAUNCH_AS)
+    *(a for actions in LAUNCH_SERVICES.values() for a in actions),
 }
 
 assert not (ADMIN_EQUIVALENT_ACTIONS & ENABLING_PRIMITIVES), "an action is one or the other"
