@@ -18,6 +18,7 @@ from __future__ import annotations
 import networkx as nx
 from .model import Source, Sink, EXTERNAL, ASSUMED_COMPROMISE
 from .ranking import sensitive_reason
+from ..graph.evaluated import trust_principals
 
 PRINCIPAL_LABELS = ("IamUser", "IamRole")
 SERVICE_LINKED = "/aws-service-role/"
@@ -121,10 +122,49 @@ def _internet_is_live(g: nx.DiGraph) -> bool:
         for _, _t, d in g.out_edges("internet", data=True) for c in d["candidates"])
 
 
+# ---- which roles can be a compromised starting point --------------------------------
+
+def _workload_roles(g: nx.DiGraph) -> dict[str, str]:
+    """role uid -> a workload currently running as it (a Lambda, or an EC2 instance via its
+    instance profile). Compromising that workload is how an attacker holds the role."""
+    profile_roles = {uid: (d.get("record") or {}).get("Roles", [])
+                     for uid, d in g.nodes(data=True) if d.get("label") == "IamInstanceProfile"}
+    out: dict[str, str] = {}
+    for uid, d in g.nodes(data=True):
+        rec = d.get("record") or {}
+        if d.get("label") == "LambdaFunction" and rec.get("Role"):
+            out.setdefault(rec["Role"], f"Lambda {rec.get('FunctionName') or uid}")
+        elif d.get("label") == "Ec2Instance" and rec.get("IamInstanceProfile"):
+            for role in profile_roles.get(rec["IamInstanceProfile"], []):
+                out.setdefault(role, f"EC2 instance {rec.get('InstanceId') or uid}")
+    return out
+
+
+def role_source_note(uid: str, rec: dict, workloads: dict[str, str]) -> str | None:
+    """Why this role's credentials could plausibly be held by an attacker, or None.
+
+    Found in the 30 Sep CloudGoat demo: treating every non-admin role as compromisable
+    reported paths "from" AWS service-linked roles and from service roles no workload runs
+    as. Nobody can obtain those credentials, so they are not starting points. A role
+    counts when an identity may assume it, or a live workload runs as it.
+    """
+    if SERVICE_LINKED in uid:
+        return None  # only the AWS service itself can ever assume these
+    if not rec.get("TrustPolicy"):
+        return ""  # trust unknown (not collected / stub): keep, over-report rather than drop
+    services, others = trust_principals(rec)
+    if others:
+        return " (assumable by another identity)"
+    if uid in workloads:
+        return f" (run as by {workloads[uid]} — compromise the workload, hold the role)"
+    return None  # service-only trust and nothing runs as it
+
+
 # ---- the source set ------------------------------------------------------------------
 
 def find_sources(g: nx.DiGraph) -> list[Source]:
     sources: list[Source] = []
+    workloads = _workload_roles(g)
 
     if _internet_is_live(g):
         sources.append(Source("internet", EXTERNAL,
@@ -156,7 +196,11 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
         elif label in PRINCIPAL_LABELS:
             if holds_full_admin(g, uid):
                 continue  # already administrator: the baseline, not an escalation
-            note = (" (AWS service-linked role)" if SERVICE_LINKED in uid else "")
+            note = ""
+            if label == "IamRole":
+                note = role_source_note(uid, rec, workloads)
+                if note is None:
+                    continue
             sources.append(Source(
                 uid, ASSUMED_COMPROMISE,
                 f"non-admin principal{note} — treated as a compromised credential",

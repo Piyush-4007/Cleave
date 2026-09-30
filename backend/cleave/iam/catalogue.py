@@ -37,8 +37,12 @@ ADMIN_EQUIVALENT_ACTIONS = {
     "iam:AddUserToGroup",
     # trust manipulation — make a privileged role trust you
     "iam:UpdateAssumeRolePolicy",
-    # run your code as an existing function's role
-    "lambda:UpdateFunctionCode",
+    # NOTE (30 Sep): lambda:UpdateFunctionCode moved to ENABLING_PRIMITIVES -- it yields
+    # the function's own role, which the CAN_WRITE -> EXECUTES_AS edges model exactly.
+    # TODO Phase 7: iam:CreateAccessKey / CreateLoginProfile / UpdateLoginProfile /
+    # AddUserToGroup / UpdateAssumeRolePolicy have the same shape (you become a specific
+    # user/group/role, admin only if it is). They stay here until precise takeover edges
+    # exist, because dropping them now would lose real paths, not just noisy ones.
 }
 
 # Dangerous only in combination. Excluded from grants_admin() on purpose.
@@ -57,6 +61,7 @@ ENABLING_PRIMITIVES = {
     "glue:CreateDevEndpoint",             # needs PassRole
     "cloudformation:CreateStack",         # needs PassRole
     "sts:AssumeRole",                     # the role's trust policy decides; see CAN_ASSUME
+    "lambda:UpdateFunctionCode",          # = that function's role; see CAN_WRITE -> EXECUTES_AS
 }
 
 assert not (ADMIN_EQUIVALENT_ACTIONS & ENABLING_PRIMITIVES), "an action is one or the other"

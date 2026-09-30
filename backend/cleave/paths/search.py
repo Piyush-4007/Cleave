@@ -14,7 +14,7 @@ raising the hop limit is the handbook's named trap.
 from __future__ import annotations
 import networkx as nx
 from .access import access_edges, expansion_targets
-from .endpoints import find_sinks, find_sources
+from .endpoints import PRINCIPAL_LABELS, find_sinks, find_sources, holds_full_admin
 from .model import AttackPath, Hop, Sink, Source
 
 MAX_HOPS = 6
@@ -127,6 +127,17 @@ def search_graph(g: nx.DiGraph, sources, sinks, expand: bool = True) -> nx.DiGra
     return sub
 
 
+def _stops_at_first_admin(sub: nx.DiGraph, nodes, already_admin) -> bool:
+    """True if the route's only full-admin identity is where it hands over to the sink:
+    `X -> admin-role -> its admin policy -> Admin` is the finding itself, not a detour."""
+    first = next(i for i, n in enumerate(nodes[1:-1], 1) if n in already_admin)
+    rest = nodes[first + 1:]
+    # after the admin identity, only its own policy link(s) down to the sink may follow
+    return all(sub.nodes[n].get("label") not in PRINCIPAL_LABELS
+               and sub.nodes[n].get("label") not in ("LambdaFunction", "Ec2Instance", "S3Bucket")
+               for n in rest[:-1])
+
+
 def find_paths(g: nx.DiGraph, sources=None, sinks=None,
                max_hops: int = MAX_HOPS, k: int = K_PER_PAIR,
                expand: bool = True) -> list[AttackPath]:
@@ -138,6 +149,11 @@ def find_paths(g: nx.DiGraph, sources=None, sinks=None,
     sources = find_sources(g) if sources is None else sources
     sinks = find_sinks(g) if sinks is None else sinks
     sub = search_graph(g, sources, sinks, expand=expand)
+    # An attacker holding a full-admin identity has already won: a route that passes
+    # through one and keeps going is the shorter finding counted again (seen in the 30 Sep
+    # CloudGoat demo). Such routes are skipped, and do not use up the k per pair.
+    already_admin = {uid for uid, d in g.nodes(data=True)
+                     if d.get("label") in PRINCIPAL_LABELS and holds_full_admin(g, uid)}
 
     found: list[AttackPath] = []
     for src in sources:
@@ -151,6 +167,8 @@ def find_paths(g: nx.DiGraph, sources=None, sinks=None,
                 for nodes in nx.shortest_simple_paths(sub, src.uid, sink.uid):
                     if len(nodes) - 1 > max_hops:
                         break  # yielded shortest-first, so everything after is longer too
+                    if already_admin.intersection(nodes[1:-1]) and                             not _stops_at_first_admin(sub, nodes, already_admin):
+                        continue
                     found.append(_materialise(sub, nodes, src, sink))
                     taken += 1
                     if taken >= k:

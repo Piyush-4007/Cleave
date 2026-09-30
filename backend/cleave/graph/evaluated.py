@@ -1,11 +1,11 @@
-"""Evaluated edges (Phase 3) â€” the *dangerous* half of the graph.
+"""Evaluated edges (Phase 3) — the *dangerous* half of the graph.
 
 Uses the IAM evaluator + reachability engine to materialise the escalation edges we
 committed to in the design (Option A): GRANTS_ADMIN, CAN_PASS_ROLE, CAN_LAUNCH_AS, and
 CAN_REACH. Generic CAN_READ/CAN_WRITE are evaluated lazily during path search (Phase 4),
 not materialised here.
 
-Pure transform over normalised records â€” no AWS calls.
+Pure transform over normalised records — no AWS calls.
 """
 from __future__ import annotations
 from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
@@ -35,6 +35,37 @@ def policy_documents(records: list[dict]):
                 if doc:
                     yield (f"{r['_id']}#inline/{pname}", doc,
                            f"{r['_id']}#InlinePolicies/{pname}")
+
+
+# The compute services a role can ride on, keyed by the service principal it must trust.
+LAUNCH_SERVICES = {"lambda.amazonaws.com": "lambda:CreateFunction",
+                   "ec2.amazonaws.com": "ec2:RunInstances"}
+
+
+def trust_principals(role: dict) -> tuple[set[str], bool]:
+    """Who a role's trust policy lets assume it: (service principals, anyone_else).
+
+    `anyone_else` is True when an Allow names an AWS/Federated/`*` principal, i.e. some
+    identity (not only an AWS service) can obtain the role's credentials. Trust Conditions
+    are not evaluated yet (v2), so this errs towards "can assume" -- over-report, not drop.
+    """
+    services: set[str] = set()
+    others = False
+    stmts = (role.get("TrustPolicy") or {}).get("Statement", [])
+    for st in ([stmts] if isinstance(stmts, dict) else stmts or []):
+        if not isinstance(st, dict) or st.get("Effect") != "Allow":
+            continue
+        pr = st.get("Principal")
+        if pr == "*":
+            others = True
+            continue
+        for kind, val in (pr or {}).items():
+            vals = val if isinstance(val, list) else [val]
+            if kind == "Service":
+                services.update(str(v).lower() for v in vals)
+            else:
+                others = True
+    return services, others
 
 
 def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ()) -> list[dict]:
@@ -67,13 +98,24 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
         return docs
 
     # ---- CAN_PASS_ROLE / CAN_LAUNCH_AS (principal -> role) ----
+    # CAN_LAUNCH_AS means "can run code as this role": pass it to a compute service AND
+    # that service can actually carry it. Two AWS facts make the second half real:
+    #   * the role must TRUST the service (a Lambda-only role cannot ride an EC2 instance);
+    #   * EC2 carries a role only inside an instance profile -- one that already holds it,
+    #     or one the principal can put it into (the Phase 0 attachment walkthrough).
+    # Without these, kerrigan (EC2) was credited with launching as a Lambda-only role in
+    # the 30 Sep CloudGoat demo. See tests/test_launch_and_sources.py.
+    profiles = [r for r in records if r["_type"] == "IamInstanceProfile"]
+    in_a_profile = {rid for p in profiles for rid in p.get("Roles", [])}
     for pr in principals:
         docs = eff_docs(pr)
         if not docs:
             continue
-        run = is_allowed(docs, "ec2:RunInstances", "*")
-        create_fn = is_allowed(docs, "lambda:CreateFunction", "*")
-        can_compute = (run.decision is Decision.ALLOW) or (create_fn.decision is Decision.ALLOW)
+        compute = {svc: is_allowed(docs, action, "*") for svc, action in LAUNCH_SERVICES.items()}
+        add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*")
+        create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*")
+        can_fill_profile = add_to_profile.decision is Decision.ALLOW and (
+            bool(profiles) or create_profile.decision is Decision.ALLOW)
         for role in roles:
             if role["_id"] == pr["_id"]:
                 continue
@@ -82,13 +124,25 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                 continue
             edges.append(_edge(pr["_id"], role["_id"], "CAN_PASS_ROLE",
                                pr_res.reason, f"{pr['_id']}#effective-policies", pr_res.bucket))
-            if can_compute:
-                svc = "ec2:RunInstances" if run.decision is Decision.ALLOW else "lambda:CreateFunction"
-                compute_res = run if run.decision is Decision.ALLOW else create_fn
-                conf = "Possible" if "Possible" in (pr_res.bucket, compute_res.bucket) else "Certain"
+
+            trusted, _ = trust_principals(role)
+            for svc, action in LAUNCH_SERVICES.items():
+                res = compute[svc]
+                if svc not in trusted or res.decision is not Decision.ALLOW:
+                    continue
+                steps, buckets = [action], [pr_res.bucket, res.bucket]
+                if svc == "ec2.amazonaws.com" and role["_id"] not in in_a_profile:
+                    if not can_fill_profile:
+                        continue  # no instance profile can carry it
+                    steps.append("iam:AddRoleToInstanceProfile")
+                    buckets.append(add_to_profile.bucket)
+                conf = "Possible" if "Possible" in buckets else "Certain"
                 edges.append(_edge(pr["_id"], role["_id"], "CAN_LAUNCH_AS",
-                                   f"can PassRole + {svc} (launch a resource carrying the role)",
-                                   f"{pr['_id']}#effective-policies", conf))
+                                   f"can PassRole + {' + '.join(steps)} "
+                                   f"(role trusts {svc}; launch a resource carrying it)",
+                                   f"{pr['_id']}#effective-policies;{role['_id']}#TrustPolicy",
+                                   conf))
+                break  # one route is enough to establish the edge
 
     # ---- CAN_REACH (Internet -> resource) ----
     edges += compute_reach(records)
