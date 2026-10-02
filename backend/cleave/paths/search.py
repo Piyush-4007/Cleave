@@ -35,6 +35,7 @@ TRAVERSABLE = {
     "CAN_LAUNCH_AS":        "boot a resource carrying the role, then read its credentials",
     "GRANTS_ADMIN":         "this policy is administrator-equivalent",
     "CAN_REACH":            "a network packet can arrive from the internet",
+    "ROUTES_TO":            "an unauthenticated API route invokes this function",
     "CONTAINS_CREDENTIAL":  "a credential stored here unlocks this principal",
     "CAN_READ":             "read the resource — its contents, including any credential in them",
     "CAN_WRITE":            "modify the resource — e.g. overwrite function code that runs as a role",

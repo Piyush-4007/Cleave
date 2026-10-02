@@ -60,7 +60,7 @@
     "title": "Password policy weaker than CIS baseline",
     "severity": "low",
     "service": "IAM",
-    "cis": "1.8",
+    "cis": "1.8, 1.9",
     "remediation": "Raise the minimum length to 14 and prevent reuse of the last 24 passwords."
   },
   "IAM.USER_DIRECT_POLICY": {

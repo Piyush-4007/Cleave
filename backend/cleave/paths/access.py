@@ -51,6 +51,10 @@ ACCESS_MODEL = {
         "CAN_READ": {"action": "kms:Decrypt", "resource": "{uid}"},
         "policy_field": "Policy",
     },
+    "DynamoDbTable": {
+        "CAN_READ": {"action": "dynamodb:GetItem", "resource": "{uid}"},
+        "policy_field": "Policy",
+    },
 }
 # TODO: SsmParameter is skipped — its `_id` is "<region>:<Name>", not an ARN, so there is
 # nothing correct to evaluate an IAM Resource match against. Fix in the collector (build

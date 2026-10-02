@@ -26,7 +26,7 @@ SERVICE_LINKED = "/aws-service-role/"
 
 # ---- sinks ---------------------------------------------------------------------------
 
-DATA_STORE_LABELS = ("S3Bucket", "RdsInstance")
+DATA_STORE_LABELS = ("S3Bucket", "RdsInstance", "DynamoDbTable")
 
 
 def find_sinks(g: nx.DiGraph) -> list[Sink]:
@@ -124,6 +124,42 @@ def _internet_is_live(g: nx.DiGraph) -> bool:
 
 # ---- which roles can be a compromised starting point --------------------------------
 
+def _oidc_hosts(g: nx.DiGraph) -> set[str]:
+    """OIDC provider identifiers of collected EKS clusters (issuer minus the scheme), used
+    to recognise IRSA roles — roles a pod in the cluster can assume."""
+    hosts = set()
+    for _uid, d in g.nodes(data=True):
+        if d.get("label") == "EksCluster":
+            iss = (d.get("record") or {}).get("OidcIssuer") or ""
+            if iss:
+                hosts.add(iss.split("://", 1)[-1].rstrip("/"))
+    return hosts
+
+
+def _federated_principals(rec: dict) -> list[str]:
+    stmts = (rec.get("TrustPolicy") or {}).get("Statement", [])
+    out = []
+    for st in ([stmts] if isinstance(stmts, dict) else stmts or []):
+        if not isinstance(st, dict) or st.get("Effect") != "Allow":
+            continue
+        fed = (st.get("Principal") or {}).get("Federated")
+        out += fed if isinstance(fed, list) else [fed] if fed else []
+    return [str(f) for f in out]
+
+
+def irsa_cluster(rec: dict, oidc_hosts: set[str]) -> str | None:
+    """The EKS cluster a role is IRSA-assumable from, or None. A pod running with the
+    matching Kubernetes service account can assume the role via the cluster OIDC provider.
+    Matched only against clusters Cleave actually collected, so a generic external OIDC IdP
+    is not mistaken for a pod."""
+    for fed in _federated_principals(rec):
+        host = fed.split("oidc-provider/", 1)[-1].rstrip("/")
+        for oh in oidc_hosts:
+            if host == oh:
+                return oh.split("/id/")[0]
+    return None
+
+
 def _workload_roles(g: nx.DiGraph) -> dict[str, str]:
     """role uid -> a workload currently running as it (a Lambda, or an EC2 instance via its
     instance profile). Compromising that workload is how an attacker holds the role."""
@@ -168,6 +204,7 @@ def role_source_note(uid: str, rec: dict, workloads: dict[str, str]) -> str | No
 def find_sources(g: nx.DiGraph) -> list[Source]:
     sources: list[Source] = []
     workloads = _workload_roles(g)
+    oidc_hosts = _oidc_hosts(g)
 
     if _internet_is_live(g):
         sources.append(Source("internet", EXTERNAL,
@@ -202,6 +239,18 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
                                   "IamRole#TrustPolicy"))
 
         elif label in PRINCIPAL_LABELS:
+            # IRSA is checked before the already-admin exclusion: a pod assuming an
+            # admin role IS an escalation (container -> account admin), so unlike a normal
+            # admin identity it is a real starting point, admin or not.
+            irsa = irsa_cluster(rec, oidc_hosts) if label == "IamRole" else None
+            if irsa:
+                short = irsa.split(".")[0] or irsa
+                sources.append(Source(
+                    uid, ASSUMED_COMPROMISE,
+                    f"role assumable by a pod via IRSA in EKS cluster {short} — compromise a "
+                    "pod and act as this role (in-cluster RBAC not assessed by a read-only scan)",
+                    f"{uid}#TrustPolicy"))
+                continue
             if holds_full_admin(g, uid):
                 continue  # already administrator: the baseline, not an escalation
             note = ""

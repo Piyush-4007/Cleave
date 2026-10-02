@@ -1,0 +1,62 @@
+# Multi-platform desktop build (Tauri app + PyInstaller engine sidecar).
+#
+# PyInstaller cannot cross-compile, so each OS builds its own engine; this matrix produces
+# the Windows .exe/NSIS, macOS .dmg/.app, and Linux .deb/.AppImage. UNSIGNED for now —
+# code signing needs paid certificates (deferred); the artifacts carry the OS "unknown
+# developer" warning. Triggered manually or on a version tag.
+#
+# NOTE: authored 2 Oct; not yet run in CI (no macOS/Linux runner available locally to
+# validate). Expect first-run tweaks to the PyInstaller + Tauri steps per platform.
+name: desktop-build
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            py_exe: .venv/Scripts/python.exe
+          - os: macos-latest
+            py_exe: .venv/bin/python
+          - os: ubuntu-latest
+            py_exe: .venv/bin/python
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cleave/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux WebView + build deps (Tauri)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Build the Python engine (PyInstaller sidecar)
+        run: |
+          uv venv --python 3.11 .venv
+          uv pip install --python ${{ matrix.py_exe }} -r requirements.txt
+          ${{ matrix.py_exe }} build_backend.py
+
+      - name: Build the app
+        run: |
+          npm install
+          npx tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cleave-${{ matrix.os }}
+          path: |
+            cleave/desktop/src-tauri/target/release/bundle/**/*

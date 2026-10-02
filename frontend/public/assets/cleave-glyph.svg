@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor"
+     stroke-width="6" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Cleave">
+  <title>Cleave</title>
+  <!-- Simplified 16px glyph: the recurve bow (doubles as the C) + one arrow. Barbs,
+       fletching, grip diamond and sighting ring are dropped so it stays legible small. -->
+  <path d="M46 8C26 12 18 22 18 32s8 20 28 24"/>
+  <path d="M8 32h46"/>
+  <path d="M44 22l12 10-12 10"/>
+</svg>

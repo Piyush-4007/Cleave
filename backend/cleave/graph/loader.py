@@ -39,6 +39,7 @@ EDGE_TYPES = {
     "ROUTES_VIA", "HAS_INTERNET_ROUTE",
     # evaluated (Phase 3)
     "GRANTS_ADMIN", "CAN_PASS_ROLE", "CAN_LAUNCH_AS", "CAN_REACH", "CONTAINS_CREDENTIAL",
+    "ROUTES_TO",
     # evaluated on demand during path search (Phase 4 increment 2) — see paths/access.py
     "CAN_READ", "CAN_WRITE",
 }
@@ -185,6 +186,15 @@ def derive_structural_edges(records: list[dict]) -> Iterable[dict]:
         if t == "LambdaFunction" and r.get("Role"):
             yield _edge(r["_id"], r["Role"], "EXECUTES_AS",
                         "function runs as this role", f"{r['_id']}#Role")
+
+        # An unauthenticated API Gateway route invokes a Lambda: reaching the API reaches
+        # that function (and then, via EXECUTES_AS, its role). Only public-route targets.
+        if t == "ApiGatewayApi":
+            for tgt in r.get("PublicRouteTargets") or []:
+                if tgt.get("lambda"):
+                    yield _edge(r["_id"], tgt["lambda"], "ROUTES_TO",
+                                f"public route {tgt.get('route', '?')} invokes this function",
+                                f"{r['_id']}#PublicRouteTargets")
 
         # Other role-carrying workloads: each runs as its role, so compromising the
         # workload yields that role (endpoints.py treats the role as a possible source).
