@@ -184,3 +184,26 @@ def test_public_bucket_gets_pab_and_is_verified():
     # applying just the PAB(s) removes the external bucket path
     v = verify_fixes(fx["records"], pab, fx.get("cred_findings", []))
     assert v["removed"] >= 1
+
+
+# ---- stage 5: teams delivery (PR plan) -------------------------------------------------
+
+def test_pr_plan_is_pure_and_complete():
+    import datetime as dt
+    from cleave.remediation.pr import build_pr_plan
+    fx, g, result = _load("09-access-key-takeover-of-an-admin.json")
+    fixes = generate_for_result(result, g)
+    plan = build_pr_plan(fixes, "acme/infra", base="main",
+                         now=dt.datetime(2026, 10, 3, tzinfo=dt.timezone.utc))
+    assert plan["repo"] == "acme/infra" and plan["branch"].startswith("cleave/remediation-")
+    # files are namespaced under the subdir, include the summary + at least one .tf
+    assert all(p.startswith("cleave-remediation/") for p in plan["files"])
+    assert any(p.endswith(".tf") for p in plan["files"])
+    assert "terraform plan" in plan["body"] and "read-only AWS access" in plan["body"]
+
+
+def test_open_pr_dry_run_opens_nothing():
+    from cleave.remediation.pr import open_pr
+    fx, g, result = _load("09-access-key-takeover-of-an-admin.json")
+    out = open_pr(generate_for_result(result, g), "acme/infra", token="unused", dry_run=True)
+    assert out["dry_run"] is True and "pr_url" not in out

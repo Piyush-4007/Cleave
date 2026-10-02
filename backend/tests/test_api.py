@@ -112,3 +112,10 @@ def test_remediation_returns_fixes_and_bundle(client):
     # the downloadable bundle has a summary + at least one .tf
     assert "REMEDIATION.md" in body["files"]
     assert any(name.endswith(".tf") for name in body["files"])
+
+
+def test_remediation_pr_is_credential_gated(client):
+    # no CLEAVE_GITHUB_REPO configured -> 403 with instructions, never a silent attempt
+    r = client.post("/remediation/pr")
+    assert r.status_code == 403
+    assert "CLEAVE_GITHUB_REPO" in r.json()["detail"]

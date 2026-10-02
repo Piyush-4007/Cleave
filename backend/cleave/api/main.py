@@ -112,6 +112,25 @@ def remediation(refresh: bool = Query(False)) -> dict:
     return service.get_remediation(refresh=refresh)
 
 
+@app.post("/remediation/pr")
+def remediation_pr(dry_run: bool = Query(False, description="preview the PR without opening it")) -> dict:
+    """TEAMS delivery: open the remediation bundle as a pull request in the configured
+    infrastructure repo. OPT-IN and credential-gated — needs CLEAVE_GITHUB_TOKEN and
+    CLEAVE_GITHUB_REPO in the environment (never in this request). Cleave opens the PR for
+    review; it never merges and never touches AWS. Without credentials, use GET /remediation
+    and apply the .tf yourself (the personal flow)."""
+    if not settings.cleave_github_repo or (not settings.cleave_github_token and not dry_run):
+        raise HTTPException(status_code=403, detail=(
+            "The PR (teams) flow is off. Set CLEAVE_GITHUB_REPO to your infra repo "
+            "(owner/repo) and CLEAVE_GITHUB_TOKEN to a fine-grained PAT (Contents + Pull "
+            "requests read/write on that repo) in your .env. Until then, download the .tf "
+            "from GET /remediation and apply it yourself."))
+    try:
+        return service.open_remediation_pr(dry_run=dry_run)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"GitHub PR failed: {type(e).__name__}: {e}")
+
+
 @app.post("/cost/actual")
 def cost_actual() -> dict:
     """Actual month-to-date spend via Cost Explorer. OPT-IN: off unless

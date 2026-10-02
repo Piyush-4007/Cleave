@@ -189,6 +189,16 @@ def get_remediation(refresh: bool = False) -> dict:
     }
 
 
+def open_remediation_pr(dry_run: bool = False) -> dict:
+    """Open (or preview) the current remediation as a GitHub PR. Credentials come from the
+    environment only; see cleave.remediation.pr."""
+    from ..remediation.pr import open_pr
+    fixes = get_remediation()["fixes"]
+    return open_pr(fixes, repo=settings.cleave_github_repo,
+                   token=settings.cleave_github_token, base=settings.cleave_pr_base,
+                   dry_run=dry_run)
+
+
 def disconnect(forget_history: bool = False) -> dict:
     """Forget the connected account on this machine.
 

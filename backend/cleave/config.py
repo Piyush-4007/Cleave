@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # Cost Explorer (actual spend) is opt-in: it needs ce:* (not in the read-only role)
     # and AWS bills ~$0.01 per request. Off by default; never run as part of a scan.
     cleave_cost_explorer: bool = False
+    # Teams remediation delivery (open a PR) is opt-in and needs GitHub credentials, which
+    # live ONLY here (the environment), never in a request. The token is a fine-grained PAT
+    # scoped to just the infra repo, with Contents + Pull requests read/write. Blank = the
+    # PR option is off and the UI uses the download-the-.tf (personal) flow instead.
+    cleave_github_token: str = ""
+    cleave_github_repo: str = ""        # "owner/repo" of the infrastructure repo
+    cleave_pr_base: str = "main"        # branch to open the PR against
 
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"
