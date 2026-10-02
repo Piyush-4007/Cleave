@@ -33,6 +33,9 @@ TRAVERSABLE = {
     "EXECUTES_AS":          "invoke or compromise the function and you act as its role",
     "CAN_ASSUME":           "sts:AssumeRole into the role",
     "CAN_LAUNCH_AS":        "boot a resource carrying the role, then read its credentials",
+    "CAN_TAKE_OVER":        "mint an access key or set the password of the user, then act as it",
+    "CAN_JOIN_GROUP":       "add yourself to the group and inherit its policies",
+    "CAN_REWRITE_TRUST":    "rewrite the role's trust policy to trust yourself, then assume it",
     "GRANTS_ADMIN":         "this policy is administrator-equivalent",
     "CAN_REACH":            "a network packet can arrive from the internet",
     "ROUTES_TO":            "an unauthenticated API route invokes this function",
@@ -60,7 +63,8 @@ CONTEXT_ONLY = {
 
 # When two nodes are connected by several relationship types, show the most damning one.
 REL_RANK = {rel: i for i, rel in enumerate([
-    "CAN_LAUNCH_AS", "CAN_ASSUME", "CONTAINS_CREDENTIAL", "CAN_REACH",
+    "CAN_LAUNCH_AS", "CAN_TAKE_OVER", "CAN_REWRITE_TRUST", "CAN_ASSUME",
+    "CAN_JOIN_GROUP", "CONTAINS_CREDENTIAL", "CAN_REACH",
     "HAS_INSTANCE_PROFILE", "CONTAINS_ROLE", "EXECUTES_AS",
     "CAN_WRITE", "CAN_READ",
     "GRANTS_ADMIN", "HAS_ATTACHED", "IN_GROUP",

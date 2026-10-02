@@ -302,7 +302,9 @@ def test_can_read_granted_by_a_bucket_policy_alone():
          "AttachedPolicies": ["arn:aws:iam::1:policy/priv"], "Groups": [], "InlinePolicies": {},
          "AccessKeys": [{"AccessKeyId": "AKIAEXAMPLE000000002"}]},
         {"_type": "IamPolicy", "_id": "arn:aws:iam::1:policy/priv", "PolicyName": "priv",
-         "Document": {"Statement": [{"Effect": "Allow", "Action": "iam:CreateAccessKey",
+         # iam:AttachUserPolicy, not CreateAccessKey: v2 treats the latter as a takeover
+         # of a specific user, not admin on its own (Phase 7)
+         "Document": {"Statement": [{"Effect": "Allow", "Action": "iam:AttachUserPolicy",
                                      "Resource": "*"}]}},
     ]
     creds = [{"bucket_id": "arn:aws:s3:::shared", "object_key": "creds.json",

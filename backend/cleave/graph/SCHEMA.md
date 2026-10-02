@@ -96,6 +96,9 @@ IGW), so the scaffolding belongs in the structural layer.
 | `CAN_REACH` | Internet/resource → resource | network reachability chain | a network packet can arrive (public IP + SG + route) |
 | `CONTAINS_CREDENTIAL` | S3Bucket/LambdaFunction env → Principal | credential scanning | found a key/secret that unlocks a principal |
 | `GRANTS_ADMIN` | IamPolicy → `Admin` | admin-equivalent permission catalogue | this policy is admin-equivalent (`*:*`, or a permission that reaches `*:*`) |
+| `CAN_TAKE_OVER` | Principal → IamUser | `iam:CreateAccessKey` (user has < 2 keys, or `DeleteAccessKey` too) or `Create`/`UpdateLoginProfile` (credential report: password state, no MFA) | mint a key / set the password, then act as that user (**Phase 7**) |
+| `CAN_JOIN_GROUP` | IamUser → IamGroup | `iam:AddUserToGroup` on the group (users only: you add yourself) | join the group, inherit its policies (**Phase 7**) |
+| `CAN_REWRITE_TRUST` | Principal → IamRole | `iam:UpdateAssumeRolePolicy` on a non-service-linked role, `sts:AssumeRole` not explicitly denied | make the role trust you, then assume it (**Phase 7**) |
 
 **`GRANTS_ADMIN` carries an extra property, `full_admin` (bool).** `True` only for a
 literal unconditional `Allow *` on `*`; `False` when the policy merely holds an escalation
@@ -167,8 +170,8 @@ classified as exactly one of:
 
 - **Traversable** — using the edge *is* a completed attacker action: `HAS_ATTACHED`,
   `IN_GROUP`, `HAS_INSTANCE_PROFILE`, `CONTAINS_ROLE`, `EXECUTES_AS`, `CAN_ASSUME`,
-  `CAN_LAUNCH_AS`, `GRANTS_ADMIN`, `CAN_REACH`, `CONTAINS_CREDENTIAL`, `CAN_READ`,
-  `CAN_WRITE`.
+  `CAN_LAUNCH_AS`, `CAN_TAKE_OVER`, `CAN_JOIN_GROUP`, `CAN_REWRITE_TRUST`,
+  `GRANTS_ADMIN`, `CAN_REACH`, `CONTAINS_CREDENTIAL`, `CAN_READ`, `CAN_WRITE`.
   The structural ones belong here: a principal reaches its powers *through* them, and
   dropping them disconnects every IAM path in the graph.
 - **Context only** — `CAN_PASS_ROLE`, `IN_SUBNET`, `IN_VPC`, `PROTECTED_BY`, `ROUTES_VIA`,

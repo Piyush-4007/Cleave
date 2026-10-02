@@ -30,19 +30,24 @@ ADMIN_EQUIVALENT_ACTIONS = {
     "iam:PutUserPolicy",
     "iam:PutRolePolicy",
     "iam:PutGroupPolicy",
-    # credential / identity takeover — become someone who already has more
-    "iam:CreateAccessKey",
-    "iam:CreateLoginProfile",
-    "iam:UpdateLoginProfile",
-    "iam:AddUserToGroup",
-    # trust manipulation — make a privileged role trust you
-    "iam:UpdateAssumeRolePolicy",
     # NOTE (30 Sep): lambda:UpdateFunctionCode moved to ENABLING_PRIMITIVES -- it yields
     # the function's own role, which the CAN_WRITE -> EXECUTES_AS edges model exactly.
-    # TODO Phase 7: iam:CreateAccessKey / CreateLoginProfile / UpdateLoginProfile /
-    # AddUserToGroup / UpdateAssumeRolePolicy have the same shape (you become a specific
-    # user/group/role, admin only if it is). They stay here until precise takeover edges
-    # exist, because dropping them now would lose real paths, not just noisy ones.
+    # NOTE (Phase 7): the identity-takeover actions moved to TAKEOVER_ACTIONS below.
+}
+
+# Identity takeover (Phase 7). Each makes the attacker a SPECIFIC principal -- admin only
+# if that principal is. v1 listed them as admin-equivalent, which drew a GRANTS_ADMIN edge
+# (a finished path to admin) for anyone holding e.g. iam:CreateAccessKey, even in an
+# account with nobody worth becoming. They are now precise edges to the target, built in
+# graph/evaluated.py, and the path continues through whatever that target holds.
+#   action -> (edge type, target kind)
+# Technique numbers: Rhino Security Labs, "AWS IAM Privilege Escalation Methods".
+TAKEOVER_ACTIONS = {
+    "iam:CreateAccessKey":        ("CAN_TAKE_OVER", "user"),     # Rhino #4
+    "iam:CreateLoginProfile":     ("CAN_TAKE_OVER", "user"),     # Rhino #5
+    "iam:UpdateLoginProfile":     ("CAN_TAKE_OVER", "user"),     # Rhino #6
+    "iam:AddUserToGroup":         ("CAN_JOIN_GROUP", "group"),   # Rhino #13
+    "iam:UpdateAssumeRolePolicy": ("CAN_REWRITE_TRUST", "role"), # Rhino #14
 }
 
 # The compute services that can carry an IAM role, and the action(s) that land the role on
@@ -86,3 +91,4 @@ ENABLING_PRIMITIVES = {
 }
 
 assert not (ADMIN_EQUIVALENT_ACTIONS & ENABLING_PRIMITIVES), "an action is one or the other"
+assert not (set(TAKEOVER_ACTIONS) & (ADMIN_EQUIVALENT_ACTIONS | ENABLING_PRIMITIVES))

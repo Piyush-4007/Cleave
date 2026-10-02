@@ -46,7 +46,10 @@
     "CONTAINS_ROLE": 4,
     "EXECUTES_AS": 5,
     "HAS_ATTACHED": 7,
-    "IN_GROUP": 6
+    "IN_GROUP": 6,
+    "CAN_TAKE_OVER": 3,
+    "CAN_JOIN_GROUP": 3,
+    "CAN_REWRITE_TRUST": 3
   },
   "remediation_fixes": {
     "_comment": "Plain-English fix per edge type, shown next to the cut. Phase 8 turns the chosen cut into an actual Terraform patch.",
@@ -61,6 +64,9 @@
     "CONTAINS_ROLE": "remove the powerful role from the instance profile",
     "EXECUTES_AS": "give the function a least-privilege execution role",
     "HAS_ATTACHED": "detach or scope down the policy",
-    "IN_GROUP": "remove the user from the group"
+    "IN_GROUP": "remove the user from the group",
+    "CAN_TAKE_OVER": "scope iam:CreateAccessKey / Create|UpdateLoginProfile to the caller's own user (arn:aws:iam::<acct>:user/${aws:username})",
+    "CAN_JOIN_GROUP": "remove iam:AddUserToGroup, or scope it away from privileged groups",
+    "CAN_REWRITE_TRUST": "remove iam:UpdateAssumeRolePolicy on this role, or scope it to roles the caller owns"
   }
 }

@@ -40,6 +40,8 @@ EDGE_TYPES = {
     # evaluated (Phase 3)
     "GRANTS_ADMIN", "CAN_PASS_ROLE", "CAN_LAUNCH_AS", "CAN_REACH", "CONTAINS_CREDENTIAL",
     "ROUTES_TO",
+    # precise identity takeover (Phase 7) — see graph/evaluated.py takeover_edges
+    "CAN_TAKE_OVER", "CAN_JOIN_GROUP", "CAN_REWRITE_TRUST",
     # evaluated on demand during path search (Phase 4 increment 2) — see paths/access.py
     "CAN_READ", "CAN_WRITE",
 }

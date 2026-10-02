@@ -1,0 +1,73 @@
+{
+  "name": "Helpdesk mints an access key for an admin user (CreateAccessKey takeover)",
+  "ground_truth": "synthetic, Phase 7; Rhino Security Labs AWS privesc method #4",
+  "story": "helpdesk can call iam:CreateAccessKey on any user. That is not admin on its own: it makes helpdesk whoever it mints a key for. ops-admin holds AdministratorAccess and one key, so a second key works and the path is real. vault-admin is also admin but already has two keys, the AWS maximum, and helpdesk cannot delete one, so the call fails and there is no route through vault-admin. intern is reachable (helpdesk can take it over) but holds nothing, so no path. v1 drew GRANTS_ADMIN on the helpdesk policy itself and reported helpdesk -> policy -> Admin regardless of who exists to become.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/helpdesk",
+      "UserName": "helpdesk",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/helpdesk-keys"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/helpdesk-keys",
+      "PolicyName": "helpdesk-keys",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["iam:ListUsers", "iam:CreateAccessKey"],
+         "Resource": "arn:aws:iam::111122223333:user/*"}
+      ]}
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/ops-admin",
+      "UserName": "ops-admin",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+      "Groups": [], "InlinePolicies": {},
+      "AccessKeys": [{"AccessKeyId": "AKIAOPSADMIN00000001", "Status": "Active"}]
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/vault-admin",
+      "UserName": "vault-admin",
+      "AttachedPolicies": ["arn:aws:iam::aws:policy/AdministratorAccess"],
+      "Groups": [], "InlinePolicies": {},
+      "AccessKeys": [{"AccessKeyId": "AKIAVAULTADMIN000001", "Status": "Active"},
+                     {"AccessKeyId": "AKIAVAULTADMIN000002", "Status": "Inactive"}]
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/intern",
+      "UserName": "intern",
+      "AttachedPolicies": [], "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+      "PolicyName": "AdministratorAccess", "ManagedBy": "AWS",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "*", "Resource": "*"}
+      ]}
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/helpdesk",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/helpdesk",
+          "arn:aws:iam::111122223333:user/ops-admin",
+          "arn:aws:iam::aws:policy/AdministratorAccess",
+          "admin"
+        ],
+        "edges": ["CAN_TAKE_OVER", "HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain"
+      }
+    ],
+    "no_paths_from": ["arn:aws:iam::111122223333:user/intern"],
+    "total_paths": 1
+  }
+}

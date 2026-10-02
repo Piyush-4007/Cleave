@@ -1,5 +1,6 @@
 {
   "name": "Three routes funnel through one admin policy; a fourth is independent",
+  "phase7_note": "Phase 7: originally used iam:CreateAccessKey as the admin-equivalent permission. v2 treats that as a takeover of a specific user (CAN_TAKE_OVER), admin only if that user is, so this now uses the self-sufficient iam:AttachUserPolicy. The route shape under test is unchanged.",
   "ground_truth": "synthetic — built for Phase 5 (min cut is trivial on one path)",
   "story": "deploy-bot holds an admin-equivalent policy. Two low-priv users (intern, contractor) can each read a bucket that leaks deploy-bot's key, and deploy-bot is itself a source. All three of those routes pass through the single GRANTS_ADMIN edge on deploy-bot-iam — cut that one edge and three paths die. A fourth route (public bucket -> break-glass admin) is independent and needs its own cut.",
   "cred_findings": [
@@ -17,7 +18,7 @@
      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/deploy-bot-iam"]},
     {"_type": "IamPolicy", "_id": "arn:aws:iam::111122223333:policy/deploy-bot-iam",
      "PolicyName": "deploy-bot-iam", "Document": {"Statement": [
-       {"Effect": "Allow", "Action": "iam:CreateAccessKey", "Resource": "*"}]}},
+       {"Effect": "Allow", "Action": "iam:AttachUserPolicy", "Resource": "*"}]}},
 
     {"_type": "IamUser", "_id": "arn:aws:iam::111122223333:user/intern",
      "UserName": "intern", "Groups": [], "InlinePolicies": {}, "AccessKeys": [],

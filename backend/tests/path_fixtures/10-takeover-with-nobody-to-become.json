@@ -1,0 +1,63 @@
+{
+  "name": "Every takeover permission, but nobody worth becoming -> no path",
+  "ground_truth": "synthetic, Phase 7 false-positive control",
+  "story": "support holds all five identity-takeover permissions on everything: CreateAccessKey, Create/UpdateLoginProfile, AddUserToGroup and UpdateAssumeRolePolicy. v1 listed each as admin-equivalent, so the support policy got a GRANTS_ADMIN edge and support was reported as one hop from full account compromise. In this account nobody is admin: the other user, the group and the role all hold read-only access. Becoming any of them gains nothing, so v2 finds no path. This is the false-positive class the takeover edges remove.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/support",
+      "UserName": "support",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/support-identity-ops"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/support-identity-ops",
+      "PolicyName": "support-identity-ops",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow",
+         "Action": ["iam:CreateAccessKey", "iam:CreateLoginProfile", "iam:UpdateLoginProfile",
+                    "iam:AddUserToGroup", "iam:UpdateAssumeRolePolicy", "iam:List*"],
+         "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/analyst",
+      "UserName": "analyst",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/read-only"],
+      "Groups": ["readers"], "InlinePolicies": {}, "AccessKeys": []
+    },
+    {
+      "_type": "IamGroup",
+      "_id": "arn:aws:iam::111122223333:group/readers",
+      "GroupName": "readers",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/read-only"],
+      "InlinePolicies": {}
+    },
+    {
+      "_type": "IamRole",
+      "_id": "arn:aws:iam::111122223333:role/report-runner",
+      "RoleName": "report-runner",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/read-only"],
+      "InlinePolicies": {},
+      "TrustPolicy": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"},
+         "Action": "sts:AssumeRole"}
+      ]}
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/read-only",
+      "PolicyName": "read-only",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:GetObject", "s3:ListBucket"], "Resource": "*"}
+      ]}
+    }
+  ],
+  "expect": {
+    "paths": [],
+    "no_paths_from": ["arn:aws:iam::111122223333:user/support"],
+    "total_paths": 0
+  }
+}

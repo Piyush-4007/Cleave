@@ -8,8 +8,9 @@ not materialised here.
 Pure transform over normalised records — no AWS calls.
 """
 from __future__ import annotations
+import fnmatch
 from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
-from ..iam.catalogue import LAUNCH_SERVICES
+from ..iam.catalogue import LAUNCH_SERVICES, TAKEOVER_ACTIONS
 from ..reachability.engine import compute_reach
 from ..credscan import credential_edges
 
@@ -62,6 +63,138 @@ def trust_principals(role: dict) -> tuple[set[str], bool]:
             else:
                 others = True
     return services, others
+
+
+def _stmts(doc):
+    st = (doc or {}).get("Statement", [])
+    return [st] if isinstance(st, dict) else [x for x in st or [] if isinstance(x, dict)]
+
+
+def _could_allow(docs: list[dict], action: str) -> bool:
+    """Cheap prefilter: does any Allow statement name this action at all (or use
+    NotAction)? Saves an is_allowed() per (attacker, target) pair on big accounts."""
+    for d in docs:
+        for st in _stmts(d):
+            if st.get("Effect") != "Allow":
+                continue
+            if "NotAction" in st:
+                return True
+            acts = st.get("Action")
+            acts = acts if isinstance(acts, list) else [acts]
+            if any(fnmatch.fnmatchcase(action.lower(), str(a).lower()) for a in acts):
+                return True
+    return False
+
+
+def _worst(*buckets: str) -> str:
+    return "Possible" if "Possible" in buckets else "Certain"
+
+
+def takeover_edges(records: list[dict], principals: list[dict], eff_docs) -> list[dict]:
+    """CAN_TAKE_OVER / CAN_JOIN_GROUP / CAN_REWRITE_TRUST -- become a specific principal.
+
+    The edge only says "you can become X"; whether that is admin is decided by X's own
+    edges downstream, exactly as CAN_LAUNCH_AS does for PassRole. Each edge also checks the
+    AWS precondition that makes the call actually work:
+      * CreateAccessKey: a user holds at most two keys; with two, you must delete one.
+      * Create/UpdateLoginProfile: Create needs no password yet, Update needs one, and a
+        user with MFA cannot be entered with a password alone (credential report).
+      * AddUserToGroup: you can only add yourself if you are a user.
+      * UpdateAssumeRolePolicy: service-linked roles are immutable; once the trust names
+        you, same-account AssumeRole needs no identity grant -- unless explicitly denied.
+    """
+    users = [r for r in records if r["_type"] == "IamUser"]
+    groups = [r for r in records if r["_type"] == "IamGroup"]
+    roles = [r for r in records if r["_type"] == "IamRole"]
+    report = next((r for r in records if r["_type"] == "IamCredentialReport"), None)
+    login = {row.get("arn"): row for row in (report or {}).get("Rows") or [] if row.get("arn")}
+    user_actions = {"iam:CreateAccessKey", "iam:CreateLoginProfile", "iam:UpdateLoginProfile"}
+    out: list[dict] = []
+
+    for pr in principals:
+        docs = eff_docs(pr)
+        if not docs or any(is_full_admin(d) for d in docs):
+            continue  # an admin has already won: becoming someone else is no new step
+        me = pr["_id"]
+        held = {a for a in TAKEOVER_ACTIONS if _could_allow(docs, a)}
+        if not held:
+            continue
+        ev = f"{me}#effective-policies"
+
+        def ask(action, target):
+            return is_allowed(docs, action, target, principal=me)
+
+        # -- users: mint a key, or set/reset the console password
+        for u in (users if held & user_actions else []):
+            uid = u["_id"]
+            if uid == me:
+                continue
+            routes: list[tuple[str, str]] = []   # (bucket, method)
+            if "iam:CreateAccessKey" in held:
+                ck = ask("iam:CreateAccessKey", uid)
+                if ck.decision is Decision.ALLOW:
+                    keys = u.get("AccessKeys")
+                    if keys is not None and len(keys) >= 2:
+                        dk = ask("iam:DeleteAccessKey", uid)
+                        if dk.decision is Decision.ALLOW:
+                            routes.append((_worst(ck.bucket, dk.bucket),
+                                           "iam:DeleteAccessKey + iam:CreateAccessKey "
+                                           "(user already has two keys)"))
+                    else:
+                        routes.append((ck.bucket, "iam:CreateAccessKey (mint a new key)"))
+            row = login.get(uid)
+            if row is not None:
+                if str(row.get("mfa_active")).lower() != "true":
+                    has_pw = str(row.get("password_enabled")).lower() == "true"
+                    act = "iam:UpdateLoginProfile" if has_pw else "iam:CreateLoginProfile"
+                    if act in held:
+                        r = ask(act, uid)
+                        if r.decision is Decision.ALLOW:
+                            routes.append((r.bucket, f"{act} (set the console password; "
+                                                     "no MFA on the user)"))
+            else:
+                # no credential report: which call works (and whether MFA blocks the
+                # console) is unknown -> at most Possible
+                lp = [a for a in ("iam:CreateLoginProfile", "iam:UpdateLoginProfile")
+                      if a in held and ask(a, uid).decision is Decision.ALLOW]
+                if lp:
+                    routes.append(("Possible", f"{' / '.join(lp)} (console password; "
+                                               "login state and MFA unknown)"))
+            if routes:
+                bucket, method = min(routes, key=lambda r: r[0] != "Certain")
+                out.append(_edge(me, uid, "CAN_TAKE_OVER",
+                                 f"can take over the user via {method}",
+                                 f"{ev};{uid}#AccessKeys", bucket, method=method))
+
+        # -- groups: a user can add itself to a group and inherit its policies
+        if "iam:AddUserToGroup" in held and pr["_type"] == "IamUser":
+            mine = set(pr.get("Groups") or [])
+            for gr in groups:
+                if gr.get("GroupName") in mine:
+                    continue
+                r = ask("iam:AddUserToGroup", gr["_id"])
+                if r.decision is Decision.ALLOW:
+                    out.append(_edge(me, gr["_id"], "CAN_JOIN_GROUP",
+                                     "can add itself to the group (iam:AddUserToGroup) and "
+                                     "inherit its policies", ev, r.bucket))
+
+        # -- roles: rewrite the trust policy to name yourself, then assume it
+        if "iam:UpdateAssumeRolePolicy" in held:
+            for role in roles:
+                rid = role["_id"]
+                if rid == me or "/aws-service-role/" in rid:
+                    continue
+                r = ask("iam:UpdateAssumeRolePolicy", rid)
+                if r.decision is not Decision.ALLOW:
+                    continue
+                assume = ask("sts:AssumeRole", rid)
+                if assume.decision is Decision.DENY and assume.matched:
+                    continue  # explicitly denied from assuming it afterwards
+                out.append(_edge(me, rid, "CAN_REWRITE_TRUST",
+                                 "can rewrite the role's trust policy to trust itself "
+                                 "(iam:UpdateAssumeRolePolicy), then assume it",
+                                 f"{ev};{rid}#TrustPolicy", r.bucket))
+    return out
 
 
 def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ()) -> list[dict]:
@@ -156,6 +289,9 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                     break  # one route per service is enough
                 if launched:
                     break  # one service is enough to establish the edge
+
+    # ---- precise identity takeover (Phase 7) ----
+    edges += takeover_edges(records, principals, eff_docs)
 
     # ---- CAN_REACH (Internet -> resource) ----
     edges += compute_reach(records)
