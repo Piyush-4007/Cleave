@@ -65,3 +65,11 @@ def test_gate_corpus_detection_and_false_positive_rates():
     assert r["detection_rate"] == 1.0           # every path-introducing PR is blocked
     assert r["false_positive_rate"] == 0.0      # no benign-but-similar PR is blocked
     assert r["false_negatives"] == 0 and r["false_positives"] == 0
+
+
+def test_benchmark_runner_produces_tables():
+    from cleave.benchmark.run import run
+    res = run()
+    assert len(res["metrics"]) >= 3
+    assert all(m["recall"] == 1.0 and m["precision"] == 1.0 for m in res["metrics"])
+    assert res["gate"]["detection_rate"] == 1.0 and res["gate"]["false_positive_rate"] == 0.0
