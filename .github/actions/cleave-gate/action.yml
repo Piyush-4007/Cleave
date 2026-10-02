@@ -1,0 +1,65 @@
+name: "Cleave merge gate"
+description: >
+  Block a pull request that introduces a new AWS attack path. Runs the Cleave engine over a
+  Terraform plan and diffs the attack-path set against the live account (new paths = paths
+  after the change minus paths before). Read-only: Cleave evaluates the plan, never applies it.
+author: "Cleave"
+
+inputs:
+  plan:
+    description: "Path to `terraform show -json tfplan` output (JSON)."
+    required: true
+  account:
+    description: "Live AWS account id, so planned ARNs line up with the live graph."
+    required: false
+    default: "PLAN"
+  live:
+    description: >
+      Optional directory holding a raw Cleave scan of the live account (the G_before
+      baseline). Omit to gate against an empty account.
+    required: false
+    default: ""
+  age:
+    description: "Human age of the baseline, stamped on the comment (e.g. 'scanned 2h ago')."
+    required: false
+    default: ""
+
+outputs:
+  blocked:
+    description: "'true' if the PR introduces at least one new attack path."
+    value: ${{ steps.gate.outputs.blocked }}
+  comment-file:
+    description: "Path to the rendered markdown PR comment."
+    value: ${{ steps.gate.outputs.comment_file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install the Cleave engine
+      shell: bash
+      run: |
+        # The whole product repo is fetched for this action, so its backend travels with it.
+        python -m pip install --quiet --upgrade pip
+        python -m pip install --quiet -r "$GITHUB_ACTION_PATH/../../../backend/requirements.txt"
+
+    - name: Run the merge gate
+      id: gate
+      shell: bash
+      run: |
+        BACKEND="$GITHUB_ACTION_PATH/../../../backend"
+        COMMENT="$RUNNER_TEMP/cleave-comment.md"
+        LIVE_ARG=""
+        if [ -n "${{ inputs.live }}" ]; then LIVE_ARG="--live ${{ inputs.live }}"; fi
+        set +e
+        PYTHONPATH="$BACKEND" python -m cleave.gate.run \
+          --plan "${{ inputs.plan }}" --account "${{ inputs.account }}" \
+          $LIVE_ARG --age "${{ inputs.age }}" --comment-out "$COMMENT"
+        RC=$?
+        set -e
+        echo "comment_file=$COMMENT" >> "$GITHUB_OUTPUT"
+        if [ "$RC" -eq 1 ]; then echo "blocked=true" >> "$GITHUB_OUTPUT"; else echo "blocked=false" >> "$GITHUB_OUTPUT"; fi

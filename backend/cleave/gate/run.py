@@ -36,11 +36,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--live", help="raw collector dump of the live account (default: empty)")
     ap.add_argument("--account", default="PLAN", help="live account id (for ARN alignment)")
     ap.add_argument("--json", action="store_true", help="emit the full result as JSON")
+    ap.add_argument("--comment", action="store_true",
+                    help="emit the rendered GitHub PR comment (markdown)")
+    ap.add_argument("--comment-out", help="also write the rendered comment to this file")
+    ap.add_argument("--age", help="base-graph age, stamped on the comment (e.g. 'scanned 8m ago')")
     a = ap.parse_args(argv)
 
     plan = json.loads(pathlib.Path(a.plan).read_text(encoding="utf-8"))
     live, creds = _live_from_raw(a.live) if a.live else ([], [])
     result = gate(live, plan, a.account, creds)
+
+    if a.comment or a.comment_out:
+        from .comment import render_comment
+        md = render_comment(result, age=a.age)
+        if a.comment:
+            sys.stdout.buffer.write((md + "\n").encode("utf-8"))  # emoji-safe on any console
+        if a.comment_out:
+            pathlib.Path(a.comment_out).write_text(md, encoding="utf-8")
+        return 1 if result["blocked"] else 0
 
     if a.json:
         print(json.dumps(result, indent=2))
