@@ -89,7 +89,7 @@ IGW), so the scaffolding belongs in the structural layer.
 
 | Edge | From → To | Needs | Attacker action |
 |---|---|---|---|
-| `CAN_ASSUME` (refined) | Principal → IamRole | trust-policy `Condition` evaluation | assume the role, conditions permitting |
+| `CAN_ASSUME` | Principal → IamRole | trust policy evaluated (Phase 7): direct same-account principal; account-root delegation + identity `sts:AssumeRole`; cross-account principal = external; trust `Condition`s evaluated | assume the role (conditions permitting) |
 | `CAN_PASS_ROLE` | Principal → IamRole | IAM eval: `iam:PassRole` on the role | hand this role to a service they launch |
 | `CAN_LAUNCH_AS` | Principal → IamRole | `CAN_PASS_ROLE` + `ec2:RunInstances`/`lambda:CreateFunction` | boot a resource carrying the role, then read its creds (**Phase 0 scenario 2**) |
 | `CAN_READ` / `CAN_WRITE` | Principal → resource | IAM eval of action on resource, **including the resource-based policy** | read or modify the resource — read a bucket holding a credential, or overwrite function code that runs as a role |

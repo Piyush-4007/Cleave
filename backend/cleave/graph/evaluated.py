@@ -46,8 +46,9 @@ def trust_principals(role: dict) -> tuple[set[str], bool]:
     """Who a role's trust policy lets assume it: (service principals, anyone_else).
 
     `anyone_else` is True when an Allow names an AWS/Federated/`*` principal, i.e. some
-    identity (not only an AWS service) can obtain the role's credentials. Trust Conditions
-    are not evaluated yet (v2), so this errs towards "can assume" -- over-report, not drop.
+    identity (not only an AWS service) can obtain the role's credentials. This coarse
+    read feeds role_source_note (is a role a plausible compromised starting point?), where
+    over-reporting is intended; the precise, condition-aware edges are assume_role_edges.
     """
     services: set[str] = set()
     others = False

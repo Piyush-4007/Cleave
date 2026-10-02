@@ -234,9 +234,11 @@ def is_allowed(policies: list[dict], action: str, resource: str,
     policy is sufficient, and an explicit Deny in either wins. That is what AWS does
     within one account, which is the model Cleave uses (handbook: single account, two
     roles).
-    TODO v2: cross-account needs an Allow on BOTH sides, and KMS is stricter still —
-    the key policy is authoritative unless it delegates to IAM. Both currently
-    over-allow, which is the v1 posture (over-report, never silently hide).
+    KMS is handled separately (is_allowed_kms): its key policy is authoritative. Here the
+    same-account union stands for S3/Secrets/etc. Cross-account resource-policy grants for
+    those services are not modelled (role assumption across accounts is, in
+    graph/evaluated.py assume_role_edges); this stays the v1 posture of over-reporting
+    same-account access rather than silently hiding a path.
     """
     ctx = cond.request_context(principal, context)
 
