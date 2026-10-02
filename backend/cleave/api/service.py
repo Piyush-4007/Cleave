@@ -170,6 +170,21 @@ def get_analysis(refresh: bool = False) -> dict:
     return out
 
 
+def run_gate(plan: dict, refresh: bool = False) -> dict:
+    """Run the merge gate (Phase 9): diff the live account against the Terraform plan and
+    report the attack paths the PR would introduce, plus a rendered PR comment. Reuses the
+    live records the current analysis was built from."""
+    from ..gate.diff import gate
+    from ..gate.comment import render_comment
+    get_state(refresh)  # ensure the account id is resolved
+    records, creds = _records_from_raw(settings.cleave_output_dir)
+    account = _STATE.get("account") or "PLAN"
+    result = gate(records, plan, account, creds)
+    result["account"] = account
+    result["comment"] = render_comment(result)
+    return result
+
+
 def get_remediation(refresh: bool = False) -> dict:
     """The fixes for the current analysis: one per minimum-cut edge (Phase 8).
 

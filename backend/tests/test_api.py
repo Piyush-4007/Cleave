@@ -119,3 +119,21 @@ def test_remediation_pr_is_credential_gated(client):
     r = client.post("/remediation/pr")
     assert r.status_code == 403
     assert "CLEAVE_GITHUB_REPO" in r.json()["detail"]
+
+
+def test_gate_endpoint_flags_new_path(client):
+    p = {"format_version": "1.2", "resource_changes": [
+        {"address": "aws_iam_user.x", "mode": "managed", "type": "aws_iam_user", "name": "x",
+         "change": {"actions": ["create"], "after": {"name": "x"}}},
+        {"address": "aws_iam_user_policy.p", "mode": "managed", "type": "aws_iam_user_policy",
+         "name": "p", "change": {"actions": ["create"], "after": {"name": "danger", "user": "x",
+            "policy": json.dumps({"Statement": [{"Effect": "Allow",
+                "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}}}]}
+    r = client.post("/gate", json=p)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["blocked"] and body["introduced"] >= 1 and "comment" in body
+
+
+def test_gate_endpoint_rejects_non_plan(client):
+    assert client.post("/gate", json={"not": "a plan"}).status_code == 400

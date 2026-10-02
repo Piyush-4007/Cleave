@@ -160,3 +160,24 @@ def test_cli_exits_nonzero_when_blocked(tmp_path):
     bf = tmp_path / "benign.json"
     bf.write_text(json.dumps(benign), encoding="utf-8")
     assert main(["--plan", str(bf), "--account", ACCT]) == 0          # clean
+
+
+# ---- stage 3: rendered comment + API ---------------------------------------------------
+
+def test_comment_renders_path_and_fix():
+    from cleave.gate.comment import render_comment
+    p = plan(change("aws_iam_user", "dev", {"name": "dev"}),
+             change("aws_iam_user_policy", "d", {"name": "danger", "user": "dev",
+                "policy": json.dumps({"Statement": [{"Effect": "Allow",
+                    "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}))
+    r = gate([], p, ACCT)
+    md = render_comment(r, age="scanned 10m ago")
+    assert "introduces 1 new attack path" in md and "```" in md
+    # a remediation is always offered: a templated "Scoped alternative" or guidance blockquote
+    assert "Scoped alternative" in md or "> **" in md
+    assert "read-only" in md
+    # benign -> green comment
+    clean = render_comment(gate([], plan(change("aws_iam_policy", "ro",
+        {"name": "ro", "policy": json.dumps({"Statement": [{"Effect": "Allow",
+            "Action": "s3:ListBucket", "Resource": "*"}]})})), ACCT))
+    assert "no new attack paths" in clean

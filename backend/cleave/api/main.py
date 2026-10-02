@@ -6,7 +6,7 @@ the API and `python -m cleave.paths.run` can never disagree.
 """
 from __future__ import annotations
 import hmac
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -102,6 +102,18 @@ def history_diff(scan_id: int) -> dict:
 def analysis(refresh: bool = Query(False, description="rebuild after a new scan/load")) -> dict:
     """The full picture: ranked paths, minimum cut, best single fix, and summary counts."""
     return service.get_analysis(refresh=refresh)
+
+
+@app.post("/gate")
+def gate(plan: dict = Body(..., description="terraform show -json output")) -> dict:
+    """Merge gate (Phase 9): given a Terraform plan, report the attack paths the change would
+    introduce vs the live account, with a rendered PR comment and a scoped-alternative fix.
+    Read-only: Cleave evaluates the plan, it never applies it."""
+    if not isinstance(plan, dict) or "resource_changes" not in plan:
+        raise HTTPException(status_code=400,
+                            detail="body must be `terraform show -json` output (a JSON object "
+                                   "with resource_changes)")
+    return service.run_gate(plan)
 
 
 @app.get("/remediation")
