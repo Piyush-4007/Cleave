@@ -181,3 +181,50 @@ def test_comment_renders_path_and_fix():
         {"name": "ro", "policy": json.dumps({"Statement": [{"Effect": "Allow",
             "Action": "s3:ListBucket", "Resource": "*"}]})})), ACCT))
     assert "no new attack paths" in clean
+
+
+# ---- stage 4a: CI-identity edges — GitHub Actions OIDC roles (no token) -----------------
+
+from cleave.paths.endpoints import github_actions_repos, find_sources
+from cleave.paths.graphview import graph_from_records
+from cleave.paths.search import find_paths
+from cleave.paths.model import ASSUMED_COMPROMISE
+
+GH_OIDC = f"arn:aws:iam::{ACCT}:oidc-provider/token.actions.githubusercontent.com"
+ADMIN_P = {"_type": "IamPolicy", "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+           "PolicyName": "AdministratorAccess", "ManagedBy": "AWS",
+           "Document": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}
+
+
+def gh_role(name, sub):
+    cond = {} if sub is None else {"StringLike": {
+        "token.actions.githubusercontent.com:sub": sub}}
+    st = {"Effect": "Allow", "Principal": {"Federated": GH_OIDC},
+          "Action": "sts:AssumeRoleWithWebIdentity"}
+    if cond:
+        st["Condition"] = cond
+    return {"_type": "IamRole", "_id": f"{A}role/{name}", "RoleName": name,
+            "AttachedPolicies": [ADMIN_P["_id"]], "InlinePolicies": {},
+            "TrustPolicy": {"Statement": [st]}}
+
+
+def test_parse_github_actions_repo_from_sub():
+    assert github_actions_repos(gh_role("deploy", "repo:octo/infra:ref:refs/heads/main")) == ["octo/infra"]
+    assert github_actions_repos(gh_role("deploy", "repo:octo/infra:*")) == ["octo/infra"]
+    assert github_actions_repos(gh_role("wild", None)) == ["*"]          # no sub = any repo
+    assert github_actions_repos({"TrustPolicy": {"Statement": []}}) == []  # not a GH role
+
+
+def test_github_actions_role_is_a_source_path_to_admin():
+    g = graph_from_records([gh_role("deploy", "repo:octo/infra:ref:refs/heads/main"), ADMIN_P])
+    srcs = {s.uid: s for s in find_sources(g)}
+    rid = f"{A}role/deploy"
+    assert rid in srcs and srcs[rid].kind == ASSUMED_COMPROMISE
+    assert "octo/infra" in srcs[rid].reason
+    assert len(find_paths(g)) == 1          # CI -> admin
+
+
+def test_unrestricted_github_role_names_the_misconfig():
+    g = graph_from_records([gh_role("wild", None), ADMIN_P])
+    src = {s.uid: s for s in find_sources(g)}[f"{A}role/wild"]
+    assert "ANY GitHub repository" in src.reason

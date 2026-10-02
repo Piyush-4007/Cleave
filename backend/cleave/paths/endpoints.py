@@ -157,6 +157,47 @@ def _federated_principals(rec: dict) -> list[str]:
     return [str(f) for f in out]
 
 
+GITHUB_OIDC = "token.actions.githubusercontent.com"
+
+
+def github_actions_repos(rec: dict) -> list[str]:
+    """Repos whose GitHub Actions workflows can assume this role, from its trust policy, or
+    []. A role federated to the GitHub OIDC provider is assumable by a workflow; the sub
+    condition (repo:OWNER/REPO:...) says which repo(s). No sub restriction -> ['*'] (ANY
+    repo on GitHub can assume it — a serious misconfiguration). Read entirely from AWS data
+    Cleave already collects; no GitHub token needed."""
+    if not any(GITHUB_OIDC in f for f in _federated_principals(rec)):
+        return []
+    stmts = (rec.get("TrustPolicy") or {}).get("Statement", [])
+    repos: list[str] = []
+    for st in ([stmts] if isinstance(stmts, dict) else stmts or []):
+        if not isinstance(st, dict) or st.get("Effect") != "Allow":
+            continue
+        if not any(GITHUB_OIDC in f for f in _federated_principals({"TrustPolicy": {"Statement": [st]}})):
+            continue
+        subs: list[str] = []
+        for op, block in (st.get("Condition") or {}).items():
+            if not isinstance(block, dict):
+                continue
+            for key, val in block.items():
+                if key.lower().endswith(":sub"):
+                    subs += val if isinstance(val, list) else [val]
+        if not subs:
+            repos.append("*")          # no sub restriction: any repo
+            continue
+        for sub in subs:
+            if str(sub).startswith("repo:"):
+                repos.append(str(sub).split(":", 2)[1])   # repo:OWNER/REPO:... -> OWNER/REPO
+            else:
+                repos.append("*")
+    # dedup, keep order
+    seen, out = set(), []
+    for r in repos:
+        if r not in seen:
+            seen.add(r); out.append(r)
+    return out
+
+
 def irsa_cluster(rec: dict, oidc_hosts: set[str]) -> str | None:
     """The EKS cluster a role is IRSA-assumable from, or None. A pod running with the
     matching Kubernetes service account can assume the role via the cluster OIDC provider.
@@ -262,6 +303,25 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
                                   f"({_principal_account(uid)})", "IamRole#TrustPolicy"))
 
         elif label in PRINCIPAL_LABELS:
+            # GitHub Actions OIDC (Phase 9 CI-identity edges): a role a workflow can assume
+            # is a starting point — whoever can run a workflow in that repo (push to the ref,
+            # or a fork PR on a permissive trigger) acts as this role. Checked before the
+            # already-admin exclusion, like IRSA: a workflow assuming an admin role IS the
+            # escalation (CI -> account admin). Read from the trust policy; repo-protection
+            # refinement needs the GitHub collector (not assessed by the AWS scan alone).
+            gh_repos = github_actions_repos(rec) if label == "IamRole" else []
+            if gh_repos:
+                where = ("ANY GitHub repository (no sub restriction — any workflow on GitHub "
+                         "can assume it)" if "*" in gh_repos
+                         else "GitHub Actions in " + ", ".join(gh_repos))
+                sources.append(Source(
+                    uid, ASSUMED_COMPROMISE,
+                    f"role assumable by {where} — a workflow run acts as this role; exposure "
+                    "depends on who can run workflows there (repo protection not assessed "
+                    "without the GitHub collector)",
+                    f"{uid}#TrustPolicy"))
+                continue
+
             # IRSA is checked before the already-admin exclusion: a pod assuming an
             # admin role IS an escalation (container -> account admin), so unlike a normal
             # admin identity it is a real starting point, admin or not.
