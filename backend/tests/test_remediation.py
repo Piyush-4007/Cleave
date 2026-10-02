@@ -76,7 +76,7 @@ def test_generate_for_result_cuts_every_path():
     assert fixes and all(f["confidence"] in ("templated", "guidance") for f in fixes)
     templated = [f for f in fixes if f["confidence"] == "templated"]
     assert templated, "the shared-cut fixture should yield at least one templated fix"
-    v = verify_fixes(fx["records"], templated)
+    v = verify_fixes(fx["records"], templated, fx.get("cred_findings", []))
     assert v["remaining"] < v["paths_before"]  # the cut reduces the paths
 
 
@@ -207,3 +207,29 @@ def test_open_pr_dry_run_opens_nothing():
     fx, g, result = _load("09-access-key-takeover-of-an-admin.json")
     out = open_pr(generate_for_result(result, g), "acme/infra", token="unused", dry_run=True)
     assert out["dry_run"] is True and "pr_url" not in out
+
+
+# ---- correctness: never emit an invalid (empty) policy or an ARN-as-bucket-name ---------
+
+def test_policy_that_grants_only_the_escalation_becomes_detach_guidance():
+    A = "arn:aws:iam::1:"
+    pol = {"_type": "IamPolicy", "_id": f"{A}policy/only-attach", "PolicyName": "only-attach",
+           "Document": {"Statement": [{"Effect": "Allow", "Action": "iam:PutUserPolicy",
+                                       "Resource": "*"}]}}
+    user = {"_type": "IamUser", "_id": f"{A}user/u", "UserName": "u",
+            "AttachedPolicies": [pol["_id"]], "Groups": [], "InlinePolicies": {}}
+    g = graph_from_records([pol, user])
+    fix = generate({"rel": "GRANTS_ADMIN", "frm": pol["_id"], "to": "admin", "fix": "x"}, g)
+    assert fix.confidence == "guidance" and fix.terraform is None
+    assert "detach" in fix.note.lower()
+
+
+def test_s3_pab_uses_the_bucket_name_not_the_arn():
+    bucket = {"_type": "S3Bucket", "_id": "arn:aws:s3:::my-data", "Name": "my-data",
+              "PublicAccessBlock": None, "Acl": [],
+              "Policy": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                                        "Action": "s3:GetObject",
+                                        "Resource": "arn:aws:s3:::my-data/*"}]}}
+    from cleave.remediation.generate import _fix_public_bucket
+    tf = _fix_public_bucket("arn:aws:s3:::my-data", graph_from_records([bucket])).terraform
+    assert 'bucket                  = "my-data"' in tf and "arn:aws:s3" not in tf

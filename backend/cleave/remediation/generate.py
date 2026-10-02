@@ -68,6 +68,11 @@ def _statements(doc: dict) -> list[dict]:
     return [st] if isinstance(st, dict) else [s for s in st or [] if isinstance(s, dict)]
 
 
+def _is_empty(doc: dict) -> bool:
+    """A policy document with no statements — invalid in AWS, so never emit it as a patch."""
+    return not _statements(doc)
+
+
 def _grants(doc: dict, actions: list[str]) -> bool:
     for st in _statements(doc):
         if st.get("Effect") != "Allow":
@@ -203,6 +208,16 @@ def _fix_grants_admin(edge: dict, g) -> Fix:
     if not removed:
         return _guidance(edge, f"{_short(puid)} reaches admin; scope its wildcard grant.",
                          "Review the wildcard permission before narrowing it.")
+    if _is_empty(new_doc):
+        # the policy existed only to grant the escalation — an empty policy is invalid,
+        # so detach and delete it rather than emit a broken patch.
+        return _guidance(
+            edge,
+            f"{_short(puid)} grants only {', '.join(sorted(set(removed)))} — its entire "
+            "purpose is the escalation. Detach it from every identity that uses it and "
+            "delete it; there is nothing in it worth keeping.",
+            "Removes the policy entirely — make sure no identity relies on it for anything "
+            "else first (it grants only the dangerous action here).")
     return Fix(
         rel=edge["rel"], target=puid,
         title=f"Remove admin-equivalent action(s) from {_short(puid)}",
@@ -234,6 +249,11 @@ def _fix_takeover(edge: dict, g) -> Fix:
             verb, how = "Remove", "from this policy"
         if not changed_acts:
             continue
+        if _is_empty(new_doc):
+            return _guidance(
+                edge, f"{_short(puid)} grants only {', '.join(actions)} — detach it from "
+                f"{_short(attacker)} and delete it rather than keeping an empty policy.",
+                "Removes the policy entirely; confirm nothing else relies on it.")
         acts = ", ".join(sorted(set(changed_acts)))
         return Fix(
             rel=edge["rel"], target=puid,
@@ -418,8 +438,10 @@ def _fix_public_bucket(bucket_uid: str, g) -> Fix:
     stop it being public: a Public Access Block with all four switches on, which overrides
     any public bucket policy or ACL. Templated and verifiable (the bucket stops being a
     source once applied)."""
-    name = _short(bucket_uid)
-    label = _tf_name(bucket_uid)
+    # the bucket NAME, not the ARN: s3 arns are arn:aws:s3:::<name>[/<key>]
+    name = (_rec(g, bucket_uid).get("Name")
+            or bucket_uid.replace("arn:aws:s3:::", "").split("/")[0])
+    label = _tf_name(name)
     tf = (f'# Cleave: block all public access to {name} (overrides public policy/ACL)\n'
           f'resource "aws_s3_bucket_public_access_block" "{label}" {{\n'
           f'  bucket                  = "{name}"\n'

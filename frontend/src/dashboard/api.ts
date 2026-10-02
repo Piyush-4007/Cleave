@@ -195,6 +195,49 @@ export async function getAnalysis(): Promise<Analysis> {
   return MOCK;
 }
 
+// ---- remediation (Phase 8) ---------------------------------------------------------
+
+export interface RemediationFix {
+  rel: string;
+  target: string;
+  title: string;
+  note: string;
+  impact: string;
+  confidence: "templated" | "guidance";
+  terraform: string | null;
+  policy_json: unknown | null;
+}
+
+export interface Remediation {
+  fixes: RemediationFix[];
+  templated: number;
+  guidance: number;
+  files: Record<string, string>; // {filename: contents} for download
+}
+
+export async function getRemediation(): Promise<Remediation> {
+  const r = await api("/remediation");
+  if (!r.ok) throw new Error(`remediation failed (${r.status})`);
+  return r.json();
+}
+
+export interface PrResult {
+  ok: boolean;
+  dry_run?: boolean;
+  pr_url?: string;
+  pr_number?: number;
+  branch?: string;
+  detail?: string; // error / setup message when not configured
+}
+
+/** Open (or, with dryRun, preview) the fix as a GitHub PR. Returns the setup message on 403. */
+export async function openRemediationPr(dryRun = false): Promise<PrResult> {
+  const r = await api(`/remediation/pr?dry_run=${dryRun}`, { method: "POST" });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) return { ok: false, detail: body.detail ?? `PR failed (${r.status})` };
+  return { ok: true, ...body };
+}
+
 export interface Connection {
   connected: boolean;
   scanning: boolean;
