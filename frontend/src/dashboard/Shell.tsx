@@ -12,6 +12,7 @@ const TABS = [
   ["Paths", "/dashboard/paths"],
   ["Findings", "/dashboard/findings"],
   ["Remediation", "/dashboard/remediation"],
+  ["Cost", "/dashboard/cost"],
   ["History", "/dashboard/history"],
 ];
 

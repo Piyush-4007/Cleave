@@ -154,4 +154,5 @@ export const MOCK: Analysis = {
   best_single_fix: cut,
   findings: [],
   findings_summary: null,
+  cost: null,
 };

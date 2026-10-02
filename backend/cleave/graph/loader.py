@@ -30,6 +30,7 @@ NODE_LABELS = {
     "GlueJob", "SageMakerNotebook", "CodeBuildProject", "EcsService",
     "SnsTopic", "SqsQueue", "EcrRepository",
     "DynamoDbTable", "ApiGatewayApi", "EksCluster",
+    "ElasticIp", "NatGateway",
 }
 EDGE_TYPES = {
     # structural (Phase 2)

@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     cleave_cors_origins: str = "http://localhost:3000,http://localhost:5173"
     # Scan history (SQLite). Blank = cleave.db beside the raw-dump folder.
     cleave_db_path: str = ""
+    # Cost Explorer (actual spend) is opt-in: it needs ce:* (not in the read-only role)
+    # and AWS bills ~$0.01 per request. Off by default; never run as part of a scan.
+    cleave_cost_explorer: bool = False
 
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"

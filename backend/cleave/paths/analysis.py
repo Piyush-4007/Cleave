@@ -45,6 +45,11 @@ def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
     from ..findings import run_checks, summarize, tag_and_rank
     findings = tag_and_rank(run_checks(g), ranked, sources)
 
+    # Free cost estimate (what is running and billing now) — from the same graph, no
+    # pricing API, no billing permission. Actual spend is the opt-in Cost Explorer panel.
+    from ..cost import estimate as cost_estimate
+    cost = cost_estimate(g)
+
     ext = sum(1 for s in sources if s.kind == EXTERNAL)
     return {
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
@@ -68,6 +73,7 @@ def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
         "best_single_fix": fixes,
         "findings": findings,
         "findings_summary": summarize(findings),
+        "cost": cost,
     }
 
 

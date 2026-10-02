@@ -99,6 +99,32 @@ export interface FindingsSummary {
   checks_failed: number;
 }
 
+export interface CostItem {
+  resource: string;
+  name: string;
+  type: string;
+  region: string | null;
+  monthly: number;
+  note: string;
+}
+
+export interface CostEstimate {
+  monthly_total: number;
+  by_type: Record<string, number>;
+  items: CostItem[];
+  estimated: true;
+  basis: string;
+  idle_elastic_ips: number;
+}
+
+export interface ActualSpend {
+  currency: string;
+  month_to_date: number;
+  period: { start: string; end: string };
+  by_service: { service: string; amount: number }[];
+  account?: string | null;
+}
+
 export interface Analysis {
   source: "neo4j" | "raw" | "mock" | "scan";
   account: string;
@@ -119,6 +145,7 @@ export interface Analysis {
   best_single_fix: CutEdge[];
   findings: Finding[];
   findings_summary: FindingsSummary | null;
+  cost: CostEstimate | null;
 }
 
 // ---- client ------------------------------------------------------------------------
@@ -267,6 +294,17 @@ export function whoLabel(s?: { principal_name?: string | null; principal_type?: 
   return s.principal_type === "root" ? "root account" : kind ? `${s.principal_name} (${kind})` : s.principal_name;
 }
 
+/** Opt-in actual spend via Cost Explorer. Returns the parsed spend, or throws with a
+ *  readable message (403 when the feature is off or the ce: permission is missing). */
+export async function getActualSpend(): Promise<ActualSpend> {
+  const r = await api("/cost/actual", { method: "POST" });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || "Cost Explorer call failed");
+  }
+  return r.json();
+}
+
 // Map the live /analysis response onto the UI types. The backend enriches each path with
 // `view` (node names, types, inspector detail) and `title`, so live data renders as richly
 // as the mock.
@@ -313,5 +351,6 @@ function mapLive(a: any): Analysis {
     best_single_fix: (a.best_single_fix ?? []).map(mapEdge),
     findings: a.findings ?? [],
     findings_summary: a.findings_summary ?? null,
+    cost: a.cost ?? null,
   };
 }

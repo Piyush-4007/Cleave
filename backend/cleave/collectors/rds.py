@@ -14,6 +14,10 @@ def collect(ctx) -> list[dict]:
                     "_type": "RdsInstance", "_id": db["DBInstanceArn"], "Region": region,
                     "DBInstanceIdentifier": db.get("DBInstanceIdentifier"),
                     "Arn": db["DBInstanceArn"], "Engine": db.get("Engine"),
+                    "DBInstanceClass": db.get("DBInstanceClass"),
+                    "AllocatedStorage": db.get("AllocatedStorage"),
+                    "StorageType": db.get("StorageType"), "MultiAZ": db.get("MultiAZ"),
+                    "DBInstanceStatus": db.get("DBInstanceStatus"),
                     "PubliclyAccessible": db.get("PubliclyAccessible"),
                     "Endpoint": (db.get("Endpoint") or {}).get("Address"),
                     "VpcSecurityGroups": [g.get("VpcSecurityGroupId")

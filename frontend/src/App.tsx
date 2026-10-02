@@ -7,6 +7,7 @@ import { PathViewer } from "./dashboard/PathViewer";
 import { Remediation } from "./dashboard/Remediation";
 import { History } from "./dashboard/History";
 import { Findings } from "./dashboard/Findings";
+import { Cost } from "./dashboard/Cost";
 import { Connect } from "./dashboard/Connect";
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="paths/:id" element={<PathViewer />} />
           <Route path="findings" element={<Findings />} />
           <Route path="remediation" element={<Remediation />} />
+          <Route path="cost" element={<Cost />} />
           <Route path="history" element={<History />} />
           <Route path="connect" element={<Connect />} />
         </Route>

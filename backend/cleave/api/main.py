@@ -104,6 +104,23 @@ def analysis(refresh: bool = Query(False, description="rebuild after a new scan/
     return service.get_analysis(refresh=refresh)
 
 
+@app.post("/cost/actual")
+def cost_actual() -> dict:
+    """Actual month-to-date spend via Cost Explorer. OPT-IN: off unless
+    CLEAVE_COST_EXPLORER is set, because it needs the ce: permission and AWS bills ~$0.01
+    per request. The free estimate lives in GET /analysis (the `cost` field)."""
+    if not settings.cleave_cost_explorer:
+        raise HTTPException(status_code=403,
+                            detail="Cost Explorer is off. It needs the ce: permission and bills "
+                                   "~$0.01 per request; enable CLEAVE_COST_EXPLORER to turn it on.")
+    try:
+        return service.actual_spend_now()
+    except Exception as e:  # noqa: BLE001
+        msg = f"{type(e).__name__}: {e}"
+        code = 403 if "AccessDenied" in msg or "not authorized" in msg else 502
+        raise HTTPException(status_code=code, detail=f"Cost Explorer call failed: {msg}")
+
+
 @app.get("/analysis/summary")
 def summary(refresh: bool = Query(False)) -> dict:
     """Just the dashboard numbers — light, no path bodies."""

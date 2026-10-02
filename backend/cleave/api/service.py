@@ -192,6 +192,20 @@ def disconnect(forget_history: bool = False) -> dict:
     return {"disconnected": True, "account": account, "history_deleted": deleted}
 
 
+def actual_spend_now() -> dict:
+    """Run Cost Explorer for the connected account. Opt-in + billed (~$0.01/request), so
+    this is only ever called from the explicit /cost/actual route, never from a scan."""
+    from datetime import date
+    from .. import aws_session
+    from ..cost import explorer
+    mode = _STATE.get("mode") or "login"
+    role_arn = _meta_from_raw(settings.cleave_output_dir).get("role_arn")
+    session = aws_session.build_session_for(role_arn if mode == "role" else None)
+    out = explorer.actual_spend(session, today=date.today())
+    out["account"] = _STATE.get("account")
+    return out
+
+
 def get_path(path_id: str) -> dict | None:
     st = get_state()
     match = next((d for d in st["analysis"]["paths"] if d["id"] == path_id), None)

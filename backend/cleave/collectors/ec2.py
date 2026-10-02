@@ -40,6 +40,21 @@ def collect(ctx) -> list[dict]:
                 "EncryptionByDefault": ec2.get_ebs_encryption_by_default()
                 .get("EbsEncryptionByDefault"),
             })
+            for a in ec2.describe_addresses().get("Addresses", []):
+                out.append({
+                    "_type": "ElasticIp", "_id": a.get("AllocationId") or a["PublicIp"],
+                    "Region": region, "PublicIp": a.get("PublicIp"),
+                    "Associated": bool(a.get("AssociationId")),
+                    "InstanceId": a.get("InstanceId"),
+                })
+            for n in paginate(ec2, "describe_nat_gateways", "NatGateways"):
+                if n.get("State") in ("deleted", "failed"):
+                    continue
+                out.append({
+                    "_type": "NatGateway", "_id": n["NatGatewayId"], "Region": region,
+                    "State": n.get("State"), "SubnetId": n.get("SubnetId"),
+                    "VpcId": n.get("VpcId"),
+                })
         except Exception:  # noqa: BLE001 - skip disabled/failed regions, keep going
             pass  # keep what this region yielded before the failure
         return out
