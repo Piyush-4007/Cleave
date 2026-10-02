@@ -170,6 +170,25 @@ def get_analysis(refresh: bool = False) -> dict:
     return out
 
 
+def get_remediation(refresh: bool = False) -> dict:
+    """The fixes for the current analysis: one per minimum-cut edge (Phase 8).
+
+    Each fix carries corrected Terraform (when Cleave can generate it exactly) or guidance,
+    its blast radius, and a confidence. Cleave never applies anything — the user reviews
+    and applies, then rescans to confirm. `files` is the ready-to-download .tf bundle.
+    """
+    from ..remediation.generate import generate_for_result
+    from ..remediation.bundle import bundle_files
+    st = get_state(refresh)
+    fixes = generate_for_result(st["analysis"], st["graph"])
+    return {
+        "fixes": fixes,
+        "templated": sum(1 for f in fixes if f["confidence"] == "templated"),
+        "guidance": sum(1 for f in fixes if f["confidence"] == "guidance"),
+        "files": bundle_files(fixes),   # {filename: contents} for a client-side download
+    }
+
+
 def disconnect(forget_history: bool = False) -> dict:
     """Forget the connected account on this machine.
 

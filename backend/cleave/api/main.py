@@ -104,6 +104,14 @@ def analysis(refresh: bool = Query(False, description="rebuild after a new scan/
     return service.get_analysis(refresh=refresh)
 
 
+@app.get("/remediation")
+def remediation(refresh: bool = Query(False)) -> dict:
+    """Proposed fixes for the current attack paths: corrected Terraform (or guidance) per
+    minimum-cut edge, with blast radius, plus a downloadable .tf bundle. Cleave never
+    applies anything — review, apply, then rescan to confirm."""
+    return service.get_remediation(refresh=refresh)
+
+
 @app.post("/cost/actual")
 def cost_actual() -> dict:
     """Actual month-to-date spend via Cost Explorer. OPT-IN: off unless

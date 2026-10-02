@@ -99,3 +99,16 @@ def test_refresh_rebuilds(client, monkeypatch):
     assert calls["n"] == 0
     client.get("/analysis?refresh=true")  # forced rebuild
     assert calls["n"] == 1
+
+
+def test_remediation_returns_fixes_and_bundle(client):
+    r = client.get("/remediation")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["fixes"] and body["templated"] >= 1
+    # every fix declares a confidence; templated ones carry Terraform
+    assert all(f["confidence"] in ("templated", "guidance") for f in body["fixes"])
+    assert any(f["terraform"] for f in body["fixes"] if f["confidence"] == "templated")
+    # the downloadable bundle has a summary + at least one .tf
+    assert "REMEDIATION.md" in body["files"]
+    assert any(name.endswith(".tf") for name in body["files"])

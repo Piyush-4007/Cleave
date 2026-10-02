@@ -127,3 +127,46 @@ def test_can_launch_as_is_guidance_with_options():
     fix = generate({"rel": "CAN_LAUNCH_AS", "frm": "arn:aws:iam::1:user/dev",
                     "to": "arn:aws:iam::1:role/r", "fix": "x"}, graph_from_records([]))
     assert fix.confidence == "guidance" and "PassedToService" in fix.note
+
+
+# ---- stage 3: CAN_REACH security-group narrowing ---------------------------------------
+
+def test_can_reach_removes_public_ingress_and_applies():
+    from cleave.remediation.verify import apply_fixes
+    sg = {"_type": "SecurityGroup", "_id": "sg-123", "GroupName": "web",
+          "IngressRules": [
+              {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
+               "IpRanges": [{"CidrIp": "0.0.0.0/0"}]},
+              {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+               "IpRanges": [{"CidrIp": "10.0.0.0/8"}]}]}
+    inst = {"_type": "Ec2Instance", "_id": "i-abc", "SecurityGroups": ["sg-123"]}
+    g = graph_from_records([sg, inst])
+    fix = generate({"rel": "CAN_REACH", "frm": "internet", "to": "i-abc", "fix": "x"}, g)
+    assert fix.confidence == "templated"
+    assert "22" in fix.note
+    # 0.0.0.0/0 may appear in the explanatory comment, but never in the kept ingress rules
+    assert "0.0.0.0/0" not in json.dumps(fix.apply["security_groups"])
+    # the apply transform drops the public rule but keeps the internal one
+    applied = apply_fixes([sg, inst], [fix.to_dict()])
+    kept = next(r for r in applied if r["_id"] == "sg-123")["IngressRules"]
+    assert len(kept) == 1 and kept[0]["FromPort"] == 443
+
+
+def test_can_reach_without_sg_data_is_guidance():
+    g = graph_from_records([{"_type": "Ec2Instance", "_id": "i-x", "SecurityGroups": []}])
+    fix = generate({"rel": "CAN_REACH", "frm": "internet", "to": "i-x", "fix": "x"}, g)
+    assert fix.confidence == "guidance"
+
+
+# ---- stage 4: the downloadable bundle --------------------------------------------------
+
+def test_bundle_writes_tf_files_and_summary(tmp_path):
+    from cleave.remediation.bundle import write_bundle
+    fx, g, result = _load("06-overlapping-paths-shared-cut.json")
+    fixes = generate_for_result(result, g)
+    out = write_bundle(fixes, tmp_path / "remediations")
+    files = sorted(p.name for p in out.iterdir())
+    assert "REMEDIATION.md" in files
+    assert any(n.endswith(".tf") for n in files)
+    md = (out / "REMEDIATION.md").read_text(encoding="utf-8")
+    assert "might break" in md and "terraform plan" in md

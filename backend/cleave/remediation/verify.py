@@ -40,6 +40,10 @@ def _apply_one(records: list[dict], fix: dict) -> list[dict]:
     elif kind == "replace_trust":
         if ap["uid"] in by_id:
             by_id[ap["uid"]]["TrustPolicy"] = ap["trust"]
+    elif kind == "narrow_sg":
+        for sg in ap.get("security_groups", []):
+            if sg["uid"] in by_id:
+                by_id[sg["uid"]]["IngressRules"] = sg["ingress"]
     # unknown / guidance-only fixes change nothing (they carry no `apply`)
     return out
 

@@ -346,6 +346,62 @@ def _fix_can_launch_as(edge: dict, g) -> Fix:
         "run workloads as this role.")
 
 
+def _public_ingress(rule: dict) -> bool:
+    cidrs = {r.get("CidrIp") for r in rule.get("IpRanges", [])}
+    cidrs |= {r.get("CidrIpv6") for r in rule.get("Ipv6Ranges", [])}
+    return "0.0.0.0/0" in cidrs or "::/0" in cidrs
+
+
+def _sgs_of(g, resource_uid: str) -> list[str]:
+    rec = _rec(g, resource_uid)
+    return rec.get("SecurityGroups") or rec.get("VpcSecurityGroups") or []
+
+
+def _fix_can_reach(edge: dict, g) -> Fix:
+    """Narrow the internet-open security-group rules that make the resource reachable.
+
+    Templated: drop every ingress rule open to 0.0.0.0/0 (or ::/0) from the SGs on the
+    resource. The impact note is explicit -- this blocks ALL inbound from the internet on
+    those ports -- because the legitimate source CIDR is a judgement only the owner has."""
+    resource = edge["to"]
+    offending = []   # (sg_uid, sg_record, kept_ingress, dropped_ports)
+    for sg_uid in _sgs_of(g, resource):
+        sg = _rec(g, sg_uid)
+        ingress = sg.get("IngressRules") or []
+        public = [r for r in ingress if _public_ingress(r)]
+        if public:
+            kept = [r for r in ingress if not _public_ingress(r)]
+            ports = ", ".join(sorted({str(r.get("FromPort", "all")) for r in public}))
+            offending.append((sg_uid, sg, kept, ports))
+    if not offending:
+        return _guidance(
+            edge, f"Reach {_short(resource)} is open from the internet; restrict the "
+            "security-group ingress to known source IP ranges.",
+            "Restricting inbound can cut off legitimate clients — confirm who connects.")
+    blocks, apply_sgs, all_ports = [], [], set()
+    for sg_uid, sg, kept, ports in offending:
+        all_ports.add(ports)
+        label = _tf_name(sg_uid)
+        rules = "\n".join("    " + ln for ln in json.dumps(kept, indent=2).splitlines())
+        blocks.append(
+            f'# Cleave: remove the 0.0.0.0/0 ingress (ports {ports}) from {sg.get("GroupName") or sg_uid}\n'
+            f'resource "aws_security_group" "{label}" {{\n'
+            f'  name = "{sg.get("GroupName") or _short(sg_uid)}"\n'
+            f'  # ingress with the internet-open rule(s) removed:\n'
+            f'  ingress = jsonencode(\n{rules}\n  )\n}}\n')
+        apply_sgs.append({"uid": sg_uid, "ingress": kept})
+    return Fix(
+        rel=edge["rel"], target=resource,
+        title=f"Remove internet-open ingress reaching {_short(resource)}",
+        note=f"{_short(resource)} is reachable from the internet because "
+             f"{len(offending)} security group(s) allow inbound from 0.0.0.0/0 on ports "
+             f"{', '.join(sorted(all_ports))}. The replacement drops those rules.",
+        impact="Blocks ALL inbound from the internet on those ports — add your specific "
+               "source CIDR(s) back if legitimate clients connect from outside.",
+        confidence="templated", terraform="\n".join(blocks),
+        apply={"kind": "narrow_sg", "security_groups": apply_sgs})
+
+
 _TEMPLATES = {
     "GRANTS_ADMIN": _fix_grants_admin,
     "CAN_TAKE_OVER": _fix_takeover,
@@ -353,6 +409,7 @@ _TEMPLATES = {
     "CAN_REWRITE_TRUST": _fix_takeover,
     "CAN_ASSUME": _fix_can_assume,
     "CAN_LAUNCH_AS": _fix_can_launch_as,
+    "CAN_REACH": _fix_can_reach,
 }
 
 
