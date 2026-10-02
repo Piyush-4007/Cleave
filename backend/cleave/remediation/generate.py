@@ -413,6 +413,33 @@ _TEMPLATES = {
 }
 
 
+def _fix_public_bucket(bucket_uid: str, g) -> Fix:
+    """A public S3 bucket is where an external path STARTS, not a cut edge. The fix is to
+    stop it being public: a Public Access Block with all four switches on, which overrides
+    any public bucket policy or ACL. Templated and verifiable (the bucket stops being a
+    source once applied)."""
+    name = _short(bucket_uid)
+    label = _tf_name(bucket_uid)
+    tf = (f'# Cleave: block all public access to {name} (overrides public policy/ACL)\n'
+          f'resource "aws_s3_bucket_public_access_block" "{label}" {{\n'
+          f'  bucket                  = "{name}"\n'
+          f'  block_public_acls       = true\n'
+          f'  block_public_policy     = true\n'
+          f'  ignore_public_acls      = true\n'
+          f'  restrict_public_buckets = true\n}}\n')
+    return Fix(
+        rel="PUBLIC_BUCKET", target=bucket_uid,
+        title=f"Block public access to {name}",
+        note=f"{name} is readable from the internet, which is where this attack path "
+             "starts. A Public Access Block with all four settings on makes it private "
+             "regardless of its bucket policy or ACL.",
+        impact=f"Anything that legitimately reads {name} anonymously over the internet "
+               "(a public website, public dataset) stops working — confirm it is not a "
+               "deliberately public bucket first.",
+        confidence="templated", terraform=tf,
+        apply={"kind": "block_public", "uid": bucket_uid})
+
+
 def generate(edge: dict, g) -> Fix:
     """Turn one cut edge into a Fix. Unknown edge types return guidance, never a guess."""
     tmpl = _TEMPLATES.get(edge["rel"])
@@ -423,6 +450,27 @@ def generate(edge: dict, g) -> Fix:
     return tmpl(edge, g)
 
 
+def _public_bucket_sources(result: dict, g) -> list[str]:
+    """Bucket uids that are public and start at least one path — deduplicated, in path
+    order. These get a source-level Public Access Block fix on top of the edge cuts."""
+    from ..paths.endpoints import bucket_public_reason
+    seen, out = set(), []
+    for p in result.get("paths", []):
+        src = p.get("source", {})
+        uid = src.get("uid")
+        if src.get("kind") != "EXTERNAL" or uid in seen or uid not in g:
+            continue
+        seen.add(uid)
+        if g.nodes[uid].get("label") == "S3Bucket" and bucket_public_reason(_rec(g, uid)):
+            out.append(uid)
+    return out
+
+
 def generate_for_result(result: dict, g) -> list[dict]:
-    """A Fix (as dict) for each edge in the minimum cut of an analysis result."""
-    return [generate(e, g).to_dict() for e in result.get("minimum_cut", {}).get("edges", [])]
+    """A Fix (as dict) for the minimum cut, plus a Public Access Block for every public S3
+    bucket that an external path starts from (a source-level fix, not an edge)."""
+    fixes = [generate(e, g).to_dict()
+             for e in result.get("minimum_cut", {}).get("edges", [])]
+    fixes += [_fix_public_bucket(uid, g).to_dict()
+              for uid in _public_bucket_sources(result, g)]
+    return fixes

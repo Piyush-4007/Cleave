@@ -170,3 +170,17 @@ def test_bundle_writes_tf_files_and_summary(tmp_path):
     assert any(n.endswith(".tf") for n in files)
     md = (out / "REMEDIATION.md").read_text(encoding="utf-8")
     assert "might break" in md and "terraform plan" in md
+
+
+# ---- stage 4: S3 public-bucket Public Access Block (source-level, verified) -------------
+
+def test_public_bucket_gets_pab_and_is_verified():
+    fx, g, result = _load("03-public-bucket-credential-to-admin.json")
+    fixes = generate_for_result(result, g)
+    pab = [f for f in fixes if f["rel"] == "PUBLIC_BUCKET"]
+    assert pab, "a public-bucket path should yield a Public Access Block fix"
+    assert pab[0]["confidence"] == "templated"
+    assert "restrict_public_buckets = true" in pab[0]["terraform"]
+    # applying just the PAB(s) removes the external bucket path
+    v = verify_fixes(fx["records"], pab, fx.get("cred_findings", []))
+    assert v["removed"] >= 1

@@ -44,6 +44,11 @@ def _apply_one(records: list[dict], fix: dict) -> list[dict]:
         for sg in ap.get("security_groups", []):
             if sg["uid"] in by_id:
                 by_id[sg["uid"]]["IngressRules"] = sg["ingress"]
+    elif kind == "block_public":
+        b = by_id.get(ap["uid"])
+        if b is not None:
+            b["PublicAccessBlock"] = {"BlockPublicAcls": True, "IgnorePublicAcls": True,
+                                      "BlockPublicPolicy": True, "RestrictPublicBuckets": True}
     # unknown / guidance-only fixes change nothing (they carry no `apply`)
     return out
 
