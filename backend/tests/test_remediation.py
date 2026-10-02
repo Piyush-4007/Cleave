@@ -86,3 +86,44 @@ def test_unknown_edge_is_guidance_only():
     fix = generate({"rel": "CAN_REACH", "frm": "internet", "to": "x", "fix": "narrow SG"},
                    graph_from_records([]))
     assert fix.confidence == "guidance" and fix.terraform is None and not fix.apply
+
+
+# ---- stage 2: CAN_ASSUME + CAN_LAUNCH_AS -----------------------------------------------
+
+def test_can_assume_same_account_delegation_is_removed_and_verified():
+    fx, g, result = _load("12-account-root-delegation.json")
+    fix = generate(_edge(result, "CAN_ASSUME"), g)
+    assert fix.confidence == "templated"
+    assert "sts:AssumeRole" not in json.dumps(fix.policy_json)
+    v = verify_fixes(fx["records"], [fix.to_dict()])
+    assert v["fully_cut"] and v["paths_after"] == 0
+
+
+def test_can_assume_wildcard_trust_is_removed_and_verified():
+    A = "arn:aws:iam::111122223333:"
+    admin = {"_type": "IamPolicy", "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+             "PolicyName": "AdministratorAccess", "ManagedBy": "AWS",
+             "Document": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}
+    role = {"_type": "IamRole", "_id": f"{A}role/open", "RoleName": "open",
+            "AttachedPolicies": [admin["_id"]], "InlinePolicies": {},
+            "TrustPolicy": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                                           "Action": "sts:AssumeRole"}]}}
+    g = graph_from_records([role, admin])
+    result = analyze(g)
+    fix = generate(_edge(result, "CAN_ASSUME"), g)
+    assert fix.confidence == "templated" and fix.apply["kind"] == "replace_trust"
+    v = verify_fixes([role, admin], [fix.to_dict()])
+    assert v["fully_cut"]
+
+
+def test_cross_account_assume_is_guidance():
+    fix = generate({"rel": "CAN_ASSUME", "frm": "arn:aws:iam::999999999999:root",
+                    "to": "arn:aws:iam::111122223333:role/vendor", "fix": "x"},
+                   graph_from_records([]))
+    assert fix.confidence == "guidance" and "ExternalId" in fix.note
+
+
+def test_can_launch_as_is_guidance_with_options():
+    fix = generate({"rel": "CAN_LAUNCH_AS", "frm": "arn:aws:iam::1:user/dev",
+                    "to": "arn:aws:iam::1:role/r", "fix": "x"}, graph_from_records([]))
+    assert fix.confidence == "guidance" and "PassedToService" in fix.note

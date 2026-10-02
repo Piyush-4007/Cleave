@@ -250,11 +250,109 @@ def _fix_takeover(edge: dict, g) -> Fix:
                      "Narrowing the resource may affect legitimate self-service.")
 
 
+def _trust_without_wildcard(trust: dict) -> tuple[dict, bool]:
+    """Drop any Allow statement whose Principal is `*` from a role trust policy."""
+    changed = False
+    kept = []
+    for st in _statements(trust):
+        if st.get("Effect") == "Allow" and st.get("Principal") == "*":
+            changed = True
+            continue
+        kept.append(st)
+    new = {k: v for k, v in trust.items() if k != "Statement"}
+    new["Statement"] = kept
+    return new, changed
+
+
+def _specific_assume_grant(doc: dict, role_uid: str) -> bool:
+    """True if a policy grants sts:AssumeRole on THIS role by name (not via `*`). Only then
+    is removing it a clean, non-over-reaching fix."""
+    for st in _statements(doc):
+        if st.get("Effect") != "Allow":
+            continue
+        acts = st.get("Action")
+        acts = acts if isinstance(acts, list) else [acts]
+        if not any(_glob(str(a), "sts:AssumeRole", ci=True) for a in acts):
+            continue
+        res = st.get("Resource")
+        res = res if isinstance(res, list) else [res]
+        if role_uid in [str(r) for r in res]:   # named explicitly, not "*"
+            return True
+    return False
+
+
+def _fix_can_assume(edge: dict, g) -> Fix:
+    role_uid, assumer = edge["to"], edge["frm"]
+    trust = _rec(g, role_uid).get("TrustPolicy") or {}
+    # 1) trust allows Principal "*" (anyone): remove that statement outright.
+    new_trust, dropped = _trust_without_wildcard(trust)
+    if dropped:
+        res = "aws_iam_role"
+        label = _tf_name(role_uid)
+        body = "\n".join("    " + ln for ln in json.dumps(new_trust, indent=2).splitlines())
+        tf = (f'# Cleave: remove the wildcard (Principal "*") trust on {_short(role_uid)}\n'
+              f'resource "{res}" "{label}" {{\n  name               = "{_short(role_uid)}"\n'
+              f'  assume_role_policy = jsonencode(\n{body}\n  )\n}}\n')
+        return Fix(rel=edge["rel"], target=role_uid,
+                   title=f"Remove the wildcard trust on {_short(role_uid)}",
+                   note=f"{_short(role_uid)} can be assumed by ANY principal (its trust "
+                        'policy names Principal "*"). The replacement drops that statement.',
+                   impact="Only principals named in the remaining trust statements can "
+                          "assume the role; add specific ones if the wildcard was load-bearing.",
+                   confidence="templated", terraform=tf,
+                   apply={"kind": "replace_trust", "uid": role_uid, "trust": new_trust})
+    # 2) same-account delegation: the assumer holds sts:AssumeRole on THIS role by name.
+    #    Removing that one statement is clean; a wildcard sts:AssumeRole is not (we cannot
+    #    know which other roles it legitimately covers) -> guidance.
+    for puid, record in _policy_nodes_of(g, assumer):
+        doc = record.get("Document")
+        if doc and _specific_assume_grant(doc, role_uid):
+            new_doc, removed = _remove_actions(doc, ["sts:AssumeRole"])
+            if removed:
+                return Fix(
+                    rel=edge["rel"], target=puid,
+                    title=f"Remove sts:AssumeRole on {_short(role_uid)} from {_short(puid)}",
+                    note=f"{_short(assumer)} can assume {_short(role_uid)} because "
+                         f"{_short(puid)} grants sts:AssumeRole on it. The replacement "
+                         "removes that grant.",
+                    impact=f"{_short(assumer)} can no longer assume {_short(role_uid)}; "
+                           "other roles it may assume are unaffected (the grant named this "
+                           "role explicitly).",
+                    confidence="templated",
+                    terraform=_render_policy_tf(puid, record, new_doc), policy_json=new_doc,
+                    apply={"kind": "replace_policy", "uid": puid, "document": new_doc})
+    acct = _account_of(assumer)
+    if _account_of(role_uid) and _account_of(role_uid) != acct:
+        why = ("The role trusts another account. If that cross-account access is intended, "
+               "add an sts:ExternalId condition to the trust; otherwise remove the "
+               "cross-account principal from the trust policy.")
+    else:
+        why = ("Tighten the role's trust policy to name only the principals that must "
+               "assume it, or remove the broad sts:AssumeRole grant from the caller.")
+    return _guidance(edge, why,
+                     "Trust/assume changes can break legitimate role switching — confirm "
+                     "who needs this role before narrowing it.")
+
+
+def _fix_can_launch_as(edge: dict, g) -> Fix:
+    return _guidance(
+        edge,
+        f"{_short(edge['frm'])} can run code as {_short(edge['to'])} by passing it to a "
+        "compute service (iam:PassRole + a launch action). Cut it by one of: scope "
+        "iam:PassRole away from this role, add an iam:PassedToService condition limiting "
+        "which services the role may be passed to, or remove the launch permission — which "
+        "one depends on what this principal legitimately runs.",
+        "Removing PassRole or the launch permission can break deployments that legitimately "
+        "run workloads as this role.")
+
+
 _TEMPLATES = {
     "GRANTS_ADMIN": _fix_grants_admin,
     "CAN_TAKE_OVER": _fix_takeover,
     "CAN_JOIN_GROUP": _fix_takeover,
     "CAN_REWRITE_TRUST": _fix_takeover,
+    "CAN_ASSUME": _fix_can_assume,
+    "CAN_LAUNCH_AS": _fix_can_launch_as,
 }
 
 

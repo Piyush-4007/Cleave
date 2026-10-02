@@ -149,7 +149,10 @@ def _federated_principals(rec: dict) -> list[str]:
     for st in ([stmts] if isinstance(stmts, dict) else stmts or []):
         if not isinstance(st, dict) or st.get("Effect") != "Allow":
             continue
-        fed = (st.get("Principal") or {}).get("Federated")
+        pr = st.get("Principal")
+        if not isinstance(pr, dict):   # Principal "*" (or a bare string) has no Federated
+            continue
+        fed = pr.get("Federated")
         out += fed if isinstance(fed, list) else [fed] if fed else []
     return [str(f) for f in out]
 
