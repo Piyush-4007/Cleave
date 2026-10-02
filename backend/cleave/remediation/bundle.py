@@ -27,7 +27,7 @@ def bundle_files(fixes: list[dict]) -> dict[str, str]:
     for fix in fixes:
         title = fix.get("title", "fix")
         md.append(f"\n## {title}")
-        md.append(f"- **edge:** `{fix.get('rel')}`  →  `{fix.get('target')}`")
+        md.append(f"- **edge:** `{fix.get('rel')}`  ->  `{fix.get('target')}`")
         md.append(f"- **what it does:** {fix.get('note', '')}")
         md.append(f"- **might break:** {fix.get('impact', '')}")
         if fix.get("confidence") == "templated" and fix.get("terraform"):
