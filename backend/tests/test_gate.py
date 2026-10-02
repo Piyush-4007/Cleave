@@ -257,3 +257,27 @@ def test_public_unreviewed_repo_sharpens_the_source_note():
     src = {s.uid: s for s in find_sources(g)}[f"{A}role/deploy"]
     assert "HIGH exposure" in src.reason and "no required reviews" in src.reason
     assert len(find_paths(g)) == 1
+
+
+def test_github_no_branch_protection_is_zero_required_reviews():
+    from cleave.collectors.github import collect_github_repos, API
+    def fake(url, token):
+        if url == f"{API}/repos/octo/open":
+            return 200, {"private": False, "default_branch": "main"}
+        if url.endswith("/protection"):
+            return 404, None          # branch not protected
+        return 404, None
+    rec = collect_github_repos(["octo/open"], token="x", fetch=fake)[0]
+    assert rec["RequiredReviews"] == 0          # 404 = no protection = 0 reviews, not unknown
+
+
+def test_github_no_admin_scope_is_unknown_reviews():
+    from cleave.collectors.github import collect_github_repos, API
+    def fake(url, token):
+        if url == f"{API}/repos/octo/priv":
+            return 200, {"private": True, "default_branch": "main"}
+        if url.endswith("/protection"):
+            return 403, None          # token lacks Administration:read
+        return 404, None
+    rec = collect_github_repos(["octo/priv"], token="x", fetch=fake)[0]
+    assert rec["RequiredReviews"] is None       # unknown, not guessed

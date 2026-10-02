@@ -34,12 +34,18 @@ def _http_fetch(url: str, token: str):
         return e.code, None
 
 
-def _repo_record(owner_repo: str, repo: dict, protection) -> dict:
-    required_reviews = None
-    if isinstance(protection, dict):
+def _repo_record(owner_repo: str, repo: dict, protection, protection_status: int = 200) -> dict:
+    # 200 -> read the count; 404 -> the branch has NO protection, i.e. 0 required reviews
+    # (the most permissive, highest-exposure case); anything else (e.g. 403 no Administration
+    # scope) -> unknown, left as None rather than guessed.
+    if protection_status == 404:
+        required_reviews: int | None = 0
+    elif isinstance(protection, dict):
         rpr = protection.get("required_pull_request_reviews")
         required_reviews = (rpr.get("required_approving_review_count", 0) if isinstance(rpr, dict)
                             else 0)
+    else:
+        required_reviews = None
     return {
         "_type": "GitHubRepo", "_id": f"github:{owner_repo}", "Repo": owner_repo,
         "Visibility": "public" if repo.get("private") is False else
@@ -59,8 +65,8 @@ def collect_github_repos(repos, token: str, fetch=_http_fetch) -> list[dict]:
         if status != 200 or not isinstance(repo, dict):
             continue
         branch = repo.get("default_branch") or "main"
-        _, protection = fetch(f"{API}/repos/{owner_repo}/branches/{branch}/protection", token)
-        out.append(_repo_record(owner_repo, repo, protection))
+        pstatus, protection = fetch(f"{API}/repos/{owner_repo}/branches/{branch}/protection", token)
+        out.append(_repo_record(owner_repo, repo, protection, pstatus))
     return out
 
 
