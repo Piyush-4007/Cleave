@@ -1,0 +1,50 @@
+{
+  "name": "Every SCP level allows the action -> identity grant stands",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:AttachUserPolicy",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "scps": [
+    [
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "*",
+            "Resource": "*"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "iam:*",
+            "Resource": "*"
+          }
+        ]
+      }
+    ]
+  ],
+  "query": {
+    "action": "iam:AttachUserPolicy",
+    "resource": "arn:aws:iam::111122223333:user/alice",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

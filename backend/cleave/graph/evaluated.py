@@ -10,7 +10,8 @@ Pure transform over normalised records — no AWS calls.
 from __future__ import annotations
 import fnmatch
 from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
-from ..iam.catalogue import LAUNCH_SERVICES, TAKEOVER_ACTIONS
+from ..iam.guardrails import ORG_ID, boundary_below_full_admin, guardrails, scp_levels
+from ..iam.catalogue import ADMIN_EQUIVALENT_ACTIONS, LAUNCH_SERVICES, TAKEOVER_ACTIONS
 from ..reachability.engine import compute_reach
 from ..credscan import credential_edges
 
@@ -90,7 +91,8 @@ def _worst(*buckets: str) -> str:
     return "Possible" if "Possible" in buckets else "Certain"
 
 
-def takeover_edges(records: list[dict], principals: list[dict], eff_docs) -> list[dict]:
+def takeover_edges(records: list[dict], principals: list[dict], eff_docs,
+                   guard_of=lambda pr, docs: {}) -> list[dict]:
     """CAN_TAKE_OVER / CAN_JOIN_GROUP / CAN_REWRITE_TRUST -- become a specific principal.
 
     The edge only says "you can become X"; whether that is admin is decided by X's own
@@ -113,7 +115,10 @@ def takeover_edges(records: list[dict], principals: list[dict], eff_docs) -> lis
 
     for pr in principals:
         docs = eff_docs(pr)
-        if not docs or any(is_full_admin(d) for d in docs):
+        if not docs:
+            continue
+        guard = guard_of(pr, docs)
+        if any(is_full_admin(d) for d in docs) and not boundary_below_full_admin(pr, guard):
             continue  # an admin has already won: becoming someone else is no new step
         me = pr["_id"]
         held = {a for a in TAKEOVER_ACTIONS if _could_allow(docs, a)}
@@ -122,7 +127,7 @@ def takeover_edges(records: list[dict], principals: list[dict], eff_docs) -> lis
         ev = f"{me}#effective-policies"
 
         def ask(action, target):
-            return is_allowed(docs, action, target, principal=me)
+            return is_allowed(docs, action, target, principal=me, **guard)
 
         # -- users: mint a key, or set/reset the console password
         for u in (users if held & user_actions else []):
@@ -208,11 +213,25 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
     # ---- GRANTS_ADMIN (policy -> Admin sink) ----
     # `full_admin` separates literal `*:*` from an escalation primitive. Path search uses
     # it to decide who is already admin (baseline) vs who has to escalate (the finding).
+    # Phase 7: in an AWS Organization member account, SCPs cap every principal, so a
+    # policy is admin-equivalent only if an admin-equivalent action survives them.
+    org = next((r for r in records if r["_id"] == ORG_ID), None)
+    account_scps = scp_levels(org, "arn:aws:iam::0:user/any")
     for uid, doc, evidence in policy_documents(records):
         res = grants_admin(doc)
-        if res.decision is Decision.ALLOW:
-            edges.append(_edge(uid, "admin", "GRANTS_ADMIN", res.reason, evidence,
-                               res.bucket, full_admin=is_full_admin(doc)))
+        if res.decision is not Decision.ALLOW:
+            continue
+        bucket, reason = res.bucket, res.reason
+        if account_scps:
+            surviving = [r for r in (is_allowed([doc], a, "*", scps=account_scps)
+                                     for a in sorted(ADMIN_EQUIVALENT_ACTIONS))
+                         if r.decision is Decision.ALLOW]
+            if not surviving:
+                continue  # every admin-equivalent grant is blocked by an SCP
+            if all(r.bucket != "Certain" for r in surviving):
+                bucket, reason = "Possible", f"{reason}; an SCP may restrict it"
+        edges.append(_edge(uid, "admin", "GRANTS_ADMIN", reason, evidence,
+                           bucket, full_admin=is_full_admin(doc)))
 
     # ---- effective policy documents in force for a principal ----
     def eff_docs(pr: dict) -> list[dict]:
@@ -234,6 +253,10 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
     #     or one the principal can put it into (the Phase 0 attachment walkthrough).
     # Without these, kerrigan (EC2) was credited with launching as a Lambda-only role in
     # the 30 Sep CloudGoat demo. See tests/test_launch_and_sources.py.
+    # ---- guardrails (Phase 7): permissions boundary + SCPs per principal ----
+    def guard_of(pr: dict, docs: list[dict]) -> dict:
+        return guardrails(pr, docs, policy_docs.get, org)
+
     profiles = [r for r in records if r["_type"] == "IamInstanceProfile"]
     in_a_profile = {rid for p in profiles for rid in p.get("Roles", [])}
     for pr in principals:
@@ -244,15 +267,18 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
         launch_actions = {a for routes in LAUNCH_SERVICES.values()
                           for route in routes for a in route}
         me = pr["_id"]
-        allow = {a: is_allowed(docs, a, "*", principal=me) for a in launch_actions}
-        add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*", principal=me)
-        create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*", principal=me)
+        guard = guard_of(pr, docs)
+        allow = {a: is_allowed(docs, a, "*", principal=me, **guard) for a in launch_actions}
+        add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*",
+                                    principal=me, **guard)
+        create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*",
+                                    principal=me, **guard)
         can_fill_profile = add_to_profile.decision is Decision.ALLOW and (
             bool(profiles) or create_profile.decision is Decision.ALLOW)
         for role in roles:
             if role["_id"] == pr["_id"]:
                 continue
-            pr_res = is_allowed(docs, "iam:PassRole", role["_id"], principal=me)
+            pr_res = is_allowed(docs, "iam:PassRole", role["_id"], principal=me, **guard)
             if pr_res.decision is not Decision.ALLOW:
                 continue
             edges.append(_edge(pr["_id"], role["_id"], "CAN_PASS_ROLE",
@@ -266,7 +292,9 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                 # v2: PassRole is often scoped with iam:PassedToService -- re-ask for
                 # THIS service, so an EC2-only grant cannot hand a role to Lambda.
                 svc_pass = is_allowed(docs, "iam:PassRole", role["_id"], principal=me,
-                                      context={"iam:PassedToService": svc})
+                                      boundary=guard["boundary"], scps=guard["scps"],
+                                      context={**guard["context"],
+                                               "iam:PassedToService": svc})
                 if svc_pass.decision is not Decision.ALLOW:
                     continue
                 for route in routes:
@@ -291,7 +319,7 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                     break  # one service is enough to establish the edge
 
     # ---- precise identity takeover (Phase 7) ----
-    edges += takeover_edges(records, principals, eff_docs)
+    edges += takeover_edges(records, principals, eff_docs, guard_of)
 
     # ---- CAN_REACH (Internet -> resource) ----
     edges += compute_reach(records)

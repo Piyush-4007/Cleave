@@ -19,6 +19,7 @@ import networkx as nx
 from .model import Source, Sink, EXTERNAL, ASSUMED_COMPROMISE
 from .ranking import sensitive_reason
 from ..graph.evaluated import trust_principals
+from ..iam.guardrails import boundary_below_full_admin
 
 PRINCIPAL_LABELS = ("IamUser", "IamRole")
 SERVICE_LINKED = "/aws-service-role/"
@@ -69,11 +70,17 @@ def _attached_policies(g: nx.DiGraph, uid: str):
 
 
 def holds_full_admin(g: nx.DiGraph, uid: str) -> bool:
-    """True if the principal already holds literal `*:*` (directly or via a group)."""
+    """True if the principal already holds literal `*:*` (directly or via a group) and no
+    permissions boundary caps it below that (Phase 7)."""
     for policy in _attached_policies(g, uid):
         for _, _tgt, d in g.out_edges(policy, data=True):
             for c in d["candidates"]:
                 if c["rel"] == "GRANTS_ADMIN" and c.get("full_admin"):
+                    rec = g.nodes[uid].get("record") or {}
+                    if rec.get("PermissionsBoundary"):
+                        from .access import principal_guardrails
+                        if boundary_below_full_admin(rec, principal_guardrails(g, uid)):
+                            return False
                     return True
     return False
 

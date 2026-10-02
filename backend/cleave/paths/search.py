@@ -71,12 +71,61 @@ REL_RANK = {rel: i for i, rel in enumerate([
 ])}
 
 
+# The edges through which a principal inherits policies. A permissions boundary caps what
+# arrives through them, so for a bounded principal they are only as good as the boundary.
+POLICY_CONDUITS = ("HAS_ATTACHED", "IN_GROUP", "CAN_JOIN_GROUP")
+
+
+def boundary_admin_cap(g: nx.DiGraph) -> dict[str, str | None]:
+    """principal uid -> how much admin-equivalent power survives its permissions boundary:
+    None (nothing: the policy conduits lead nowhere), "Possible", or "Certain". Only
+    principals with a boundary in force are listed (Phase 7)."""
+    from ..iam.catalogue import ADMIN_EQUIVALENT_ACTIONS
+    from ..iam.evaluator import Decision, is_allowed
+    from .access import effective_policy_docs, principal_guardrails
+    out: dict[str, str | None] = {}
+    for uid, data in g.nodes(data=True):
+        if data.get("label") not in PRINCIPAL_LABELS:
+            continue
+        if not (data.get("record") or {}).get("PermissionsBoundary"):
+            continue
+        docs = effective_policy_docs(g, uid)
+        guard = principal_guardrails(g, uid, docs)
+        if guard.get("boundary") is None:
+            continue                     # removable boundary: no cap
+        best = None
+        for action in sorted(ADMIN_EQUIVALENT_ACTIONS):
+            r = is_allowed(docs, action, "*", principal=uid, **guard)
+            if r.decision is Decision.ALLOW:
+                best = "Certain" if r.bucket == "Certain" else (best or "Possible")
+                if best == "Certain":
+                    break
+        out[uid] = best
+    return out
+
+
 def traversable_subgraph(g: nx.DiGraph) -> nx.DiGraph:
-    """Drop context-only edges. Search runs on what's left."""
+    """Drop context-only edges. Search runs on what's left.
+
+    Phase 7: a bounded principal's policy conduits (HAS_ATTACHED, IN_GROUP,
+    CAN_JOIN_GROUP) carry only what its boundary lets through. If no admin-equivalent
+    action survives the boundary they are dropped from the search; if one survives only
+    POSSIBLY they are kept but marked Possible. Data access (CAN_READ/CAN_WRITE) is
+    evaluated with the boundary directly, so it does not depend on these edges.
+    """
+    cap = boundary_admin_cap(g)
     sub = nx.DiGraph()
     sub.add_nodes_from(g.nodes(data=True))
     for a, b, d in g.edges(data=True):
         keep = [c for c in d["candidates"] if c["rel"] in TRAVERSABLE]
+        if a in cap:
+            conduit = [c for c in keep if c["rel"] in POLICY_CONDUITS]
+            keep = [c for c in keep if c["rel"] not in POLICY_CONDUITS]
+            if cap[a] is not None:
+                keep += conduit if cap[a] == "Certain" else [
+                    {**c, "confidence": "Possible",
+                     "reason": f"{c.get('reason', '')} (capped by a permissions boundary "
+                               "that may not allow it)"} for c in conduit]
         if keep:
             sub.add_edge(a, b, candidates=keep)
     return sub
@@ -103,7 +152,7 @@ def _materialise(g: nx.DiGraph, nodes: list[str], source: Source, sink: Sink) ->
     return AttackPath(source=source, sink=sink, nodes=list(nodes), hops=hops)
 
 
-def _expand_access(sub: nx.DiGraph, sources, sinks) -> int:
+def _expand_access(sub: nx.DiGraph, sources, sinks, g: nx.DiGraph | None = None) -> int:
     """Add the CAN_READ/CAN_WRITE edges that could matter to the *search* graph.
 
     Demand-driven: only resources that lead somewhere, only candidate source principals.
@@ -114,7 +163,9 @@ def _expand_access(sub: nx.DiGraph, sources, sinks) -> int:
     targets = expansion_targets(sub, set(TRAVERSABLE), sink_uids)
     if not targets:
         return 0
-    edges = access_edges(sub, [s.uid for s in sources], targets)
+    # read principals' policies from `g`: a bounded principal's conduits may be absent
+    # from the search graph, but its data access is still evaluated (with the boundary)
+    edges = access_edges(g if g is not None else sub, [s.uid for s in sources], targets)
     for e in edges:
         _add_edge(sub, e)
     return len(edges)
@@ -128,7 +179,7 @@ def search_graph(g: nx.DiGraph, sources, sinks, expand: bool = True) -> nx.DiGra
     """
     sub = traversable_subgraph(g)
     if expand:
-        _expand_access(sub, sources, sinks)
+        _expand_access(sub, sources, sinks, g)
     return sub
 
 

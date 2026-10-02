@@ -1,0 +1,39 @@
+{
+  "name": "A boundary that allows only from a source IP leaves the grant POSSIBLE",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "boundary": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "*",
+        "Resource": "*",
+        "Condition": {
+          "IpAddress": {
+            "aws:SourceIp": "10.0.0.0/8"
+          }
+        }
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::data/report.csv",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  }
+}

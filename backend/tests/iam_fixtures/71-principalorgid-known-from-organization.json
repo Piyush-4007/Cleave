@@ -1,0 +1,32 @@
+{
+  "name": "A resource policy allowing aws:PrincipalOrgID is decidable once the org id is known",
+  "policies": [],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": "*",
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::data/report.csv",
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalOrgID": "o-abc123"
+          }
+        }
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::data/report.csv",
+    "principal": "arn:aws:iam::111122223333:user/alice",
+    "context": {
+      "aws:PrincipalOrgID": "o-abc123"
+    }
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

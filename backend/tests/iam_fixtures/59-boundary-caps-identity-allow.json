@@ -1,0 +1,35 @@
+{
+  "name": "Permissions boundary without iam:* caps an AdministratorAccess identity -> DENY",
+  "note": "A boundary is the maximum an identity policy can grant. v1 ignored boundaries entirely.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "boundary": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "s3:*",
+        "Resource": "*"
+      }
+    ]
+  },
+  "query": {
+    "action": "iam:AttachUserPolicy",
+    "resource": "arn:aws:iam::111122223333:user/alice",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

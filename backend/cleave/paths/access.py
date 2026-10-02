@@ -22,6 +22,7 @@ graph, which is what `networkx.shortest_simple_paths` needs.
 from __future__ import annotations
 import logging
 from ..iam.evaluator import Decision, is_allowed
+from ..iam.guardrails import ORG_ID, guardrails
 
 log = logging.getLogger("cleave.paths.access")
 
@@ -91,6 +92,20 @@ def effective_policy_docs(g, uid: str) -> list[dict]:
     return docs
 
 
+def principal_guardrails(g, uid: str, docs: list[dict] | None = None) -> dict:
+    """is_allowed() keyword arguments (boundary, scps, context) for a principal node, read
+    from the graph — the same rules graph/evaluated.py applies to the records."""
+    rec = g.nodes[uid].get("record") or {} if uid in g else {}
+    if docs is None:
+        docs = effective_policy_docs(g, uid)
+
+    def lookup(arn):
+        return (g.nodes[arn].get("record") or {}).get("Document") if arn in g else None
+
+    org = (g.nodes[ORG_ID].get("record") or None) if ORG_ID in g else None
+    return guardrails({**rec, "_id": uid}, docs, lookup, org)
+
+
 def expansion_targets(g, traversable: set[str], sink_uids: frozenset[str] = frozenset()) -> list[str]:
     """Resources worth evaluating access to: those that lead somewhere.
 
@@ -124,6 +139,7 @@ def access_edges(g, principal_uids, target_uids) -> list[dict]:
         docs = effective_policy_docs(g, p_uid)
         if not docs:
             continue
+        guard = principal_guardrails(g, p_uid, docs)
         for t_uid in target_uids:
             record = g.nodes[t_uid].get("record") or {}
             model = ACCESS_MODEL[g.nodes[t_uid]["label"]]
@@ -134,7 +150,7 @@ def access_edges(g, principal_uids, target_uids) -> list[dict]:
                 evaluated += 1
                 res = is_allowed(docs, spec["action"],
                                  spec["resource"].format(uid=t_uid),
-                                 resource_policy=res_policy, principal=p_uid)
+                                 resource_policy=res_policy, principal=p_uid, **guard)
                 if res.decision is not Decision.ALLOW:
                     continue
                 edges.append({"frm": p_uid, "to": t_uid, "rel": rel, "props": {

@@ -6,7 +6,9 @@ A fixture declares one or more expectations:
                                optional `resource_policy` (doc) and `query.principal`
                                (caller ARN) bring in the resource-based side;
                                optional `query.context` adds request-context keys
-                               (e.g. iam:PassedToService) on top of the derived ones
+                               (e.g. iam:PassedToService) on top of the derived ones;
+                               optional top-level `boundary` (doc, or "unknown") and
+                               `scps` (list of hierarchy levels, each a list of docs)
   `expect_grants_admin`     -> grants_admin(policies[0])      (is this policy a route to admin?)
   `expect_full_admin`       -> is_full_admin(policies[0])     (is it literally `*:*`?)
 
@@ -31,7 +33,8 @@ def test_fixture(path):
         q, exp = fx["query"], fx["expect"]
         res = is_allowed(fx["policies"], q["action"], q["resource"],
                          resource_policy=fx.get("resource_policy"),
-                         principal=q.get("principal"), context=q.get("context"))
+                         principal=q.get("principal"), context=q.get("context"),
+                         boundary=fx.get("boundary"), scps=fx.get("scps"))
         assert res.decision.value == exp["decision"], f"{fx['name']}: {res.reason}"
         assert res.confidence.value == exp["confidence"], f"{fx['name']}: {res.reason}"
         checked = True
@@ -52,7 +55,7 @@ def test_fixture(path):
 
 def test_have_enough_fixtures():
     # handbook: ~20 fixtures by end of Phase 3. Fail if the suite ever shrinks.
-    assert len(FIXTURES) >= 58
+    assert len(FIXTURES) >= 71
 
 
 def test_decision_and_confidence_are_the_only_vocabulary():

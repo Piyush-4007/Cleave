@@ -1,0 +1,43 @@
+{
+  "name": "An SCP Deny at any level blocks, whatever the identity grants",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        }
+      ]
+    }
+  ],
+  "scps": [
+    [
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "*",
+            "Resource": "*"
+          },
+          {
+            "Effect": "Deny",
+            "Action": "iam:Attach*",
+            "Resource": "*"
+          }
+        ]
+      }
+    ]
+  ],
+  "query": {
+    "action": "iam:AttachUserPolicy",
+    "resource": "arn:aws:iam::111122223333:user/alice",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

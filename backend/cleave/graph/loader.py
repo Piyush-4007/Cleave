@@ -31,6 +31,8 @@ NODE_LABELS = {
     "SnsTopic", "SqsQueue", "EcrRepository",
     "DynamoDbTable", "ApiGatewayApi", "EksCluster",
     "ElasticIp", "NatGateway",
+    # organization membership + SCPs (Phase 7 guardrails)
+    "Organization",
 }
 EDGE_TYPES = {
     # structural (Phase 2)

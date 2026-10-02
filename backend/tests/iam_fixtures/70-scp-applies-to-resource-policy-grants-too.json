@@ -1,0 +1,40 @@
+{
+  "name": "SCPs cap the account's principals even when a resource policy grants the access",
+  "policies": [],
+  "scps": [
+    [
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "ec2:*",
+            "Resource": "*"
+          }
+        ]
+      }
+    ]
+  ],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::111122223333:user/alice"
+        },
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::data/report.csv"
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::data/report.csv",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

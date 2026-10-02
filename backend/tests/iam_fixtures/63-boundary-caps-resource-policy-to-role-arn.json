@@ -1,0 +1,37 @@
+{
+  "name": "A bucket policy naming a ROLE ARN is limited by the role's boundary",
+  "note": "AWS: grants to an IAM role ARN are limited by an implicit deny in the role's permissions boundary (only grants to the role SESSION ARN are not).",
+  "policies": [],
+  "boundary": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "ec2:*",
+        "Resource": "*"
+      }
+    ]
+  },
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::111122223333:role/app"
+        },
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::data/report.csv"
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::data/report.csv",
+    "principal": "arn:aws:iam::111122223333:role/app"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

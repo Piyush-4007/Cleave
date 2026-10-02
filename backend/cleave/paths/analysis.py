@@ -27,6 +27,11 @@ LABEL_TO_TYPE = {
 }
 
 
+def _scp_status(g) -> str:
+    from ..iam.guardrails import ORG_ID, scp_status
+    return scp_status((g.nodes[ORG_ID].get("record") or None) if ORG_ID in g else None)
+
+
 def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
     sources = find_sources(g)
     sinks = find_sinks(g)
@@ -58,6 +63,9 @@ def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
             "sources": len(sources),
             "sources_external": ext,
             "sources_assumed_compromise": len(sources) - ext,
+            # how SCPs were handled: applied | not_in_organization | management_account |
+            # unreadable (caveat: assumed not to restrict) | scps_disabled | ...
+            "scp_status": _scp_status(g),
             "sinks": len(sinks),
             "sinks_admin": sum(1 for s in sinks if s.kind == "ADMIN"),
             "sinks_sensitive_data": sum(1 for s in sinks if s.kind == "SENSITIVE_DATA"),

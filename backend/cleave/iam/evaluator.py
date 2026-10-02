@@ -11,6 +11,10 @@ v2 adds, stage by stage:
     decidable keys (who the caller is, what a direct SDK call carries) give CERTAIN or
     DENY; request-time keys (SourceIp, MFA, time, tags) stay POSSIBLE and are NAMED in
     the reason. Policy variables (${aws:username}) are substituted in Resource too.
+  * Guardrails: permissions boundaries and SCPs. Neither ever grants; each must ALSO
+    allow. A boundary caps identity grants and grants to a role ARN, not grants that a
+    resource policy makes to a user ARN. SCPs need an Allow at every level of the
+    organization hierarchy and cap everything the account's principals do.
 Remaining `# TODO v2` markers are the stages still to come.
 """
 from __future__ import annotations
@@ -178,10 +182,41 @@ def _keys_text(keys: list[str]) -> str:
     return ", ".join(uniq[:4]) + (" ..." if len(uniq) > 4 else "")
 
 
+UNREADABLE = "unknown"   # a boundary/SCP set exists but its documents could not be read
+
+
+def _guardrail(docs: list[dict], action: str, resource: str, ctx: dict):
+    """Evaluate one guardrail layer (a boundary, or one SCP hierarchy level).
+    -> ("deny" | True | False | UNKNOWN, unknown_keys). Never grants; True only means
+    'this layer does not stand in the way'."""
+    allow, maybe, keys = False, False, []
+    for st in _statements(docs):
+        if not _action_matches(st, action):
+            continue
+        ap, k = _applies(st, resource, ctx)
+        if ap is False:
+            continue
+        if st.get("Effect") == "Deny":
+            if ap is True:
+                return "deny", []
+            maybe, keys = True, keys + k
+        elif st.get("Effect") == "Allow":
+            if ap is True:
+                allow = True
+            else:
+                maybe, keys = True, keys + k
+    if allow and not maybe:
+        return True, []
+    if allow or maybe:
+        return cond.UNKNOWN, keys
+    return False, []
+
+
 def is_allowed(policies: list[dict], action: str, resource: str,
                resource_policy: dict | None = None,
                principal: str | None = None,
-               context: dict | None = None) -> EvalResult:
+               context: dict | None = None,
+               boundary=None, scps=None) -> EvalResult:
     """Evaluate whether `action` on `resource` is allowed.
 
     `policies` are the identity policy documents in force for the caller. Pass
@@ -189,6 +224,11 @@ def is_allowed(policies: list[dict], action: str, resource: str,
     (the caller's ARN) to include the resource-based side of the decision. `context`
     adds request-context keys (e.g. {"iam:PassedToService": "ec2.amazonaws.com"}) on
     top of what is derived from the principal (see conditions.request_context).
+
+    Guardrails (v2): `boundary` is the principal's permissions-boundary document (a dict,
+    a list of dicts, or UNREADABLE); `scps` is the SCP hierarchy that applies to the
+    account, one list of documents per level (root, OUs, account), or UNREADABLE. None
+    means "no such guardrail" (not in an organization / no boundary attached).
 
     Same-account semantics: an Allow in *either* the identity policy or the resource
     policy is sufficient, and an explicit Deny in either wins. That is what AWS does
@@ -224,13 +264,50 @@ def is_allowed(policies: list[dict], action: str, resource: str,
     def eff(x):
         return x[0].get("Effect")
 
+    # ---- guardrails: evaluate each layer once ----
+    guard_keys: list[str] = []
+    guard_maybe = False
+    scp_state = True
+    if scps == UNREADABLE:
+        scp_state, guard_keys = cond.UNKNOWN, ["<SCPs unreadable>"]
+    elif scps:
+        for i, level in enumerate(scps):
+            st_, k = _guardrail(_as_list(level), action, resource, ctx)
+            if st_ == "deny":
+                return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                                  f"explicit Deny in a service control policy (level {i})", [])
+            if st_ is False:
+                return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                                  f"no service control policy Allow at level {i} "
+                                  "(SCPs must allow at every level)", [])
+            if st_ is cond.UNKNOWN:
+                scp_state, guard_keys = cond.UNKNOWN, guard_keys + k
+    if scp_state is cond.UNKNOWN:
+        guard_maybe = True
+
+    bnd_state = True
+    if boundary == UNREADABLE:
+        bnd_state, bnd_keys = cond.UNKNOWN, ["<permissions boundary unreadable>"]
+    elif boundary:
+        bnd_state, bnd_keys = _guardrail(_as_list(boundary), action, resource, ctx)
+        if bnd_state == "deny":
+            return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                              "explicit Deny in the permissions boundary", [])
+    else:
+        bnd_keys = []
+    is_user = bool(principal) and ":user/" in principal
+
+    def capped_by_boundary(x) -> bool:
+        """Does the boundary limit this grant? Identity grants always; resource-policy
+        grants only when they name a role (a user ARN grant escapes the boundary)."""
+        return x[3] == "identity" or not is_user
+
     denies = [x for x in considered if eff(x) == "Deny"]
     identity_allows = [x for x in considered if eff(x) == "Allow" and x[3] == "identity"]
     # A "delegated" resource Allow (Principal = account root) grants nothing the identity
     # policy does not already grant, so it is never an independent Allow.
     resource_allows = [x for x in considered
                        if eff(x) == "Allow" and x[3] == "resource" and x[4] == "explicit"]
-    allows = identity_allows + resource_allows
 
     # 1) explicit Deny that provably applies -> hard block (Certain).
     hard_denies = [x[0] for x in denies if x[1] is True]
@@ -238,25 +315,35 @@ def is_allowed(policies: list[dict], action: str, resource: str,
         return EvalResult(Decision.DENY, Confidence.CERTAIN,
                           "explicit Deny matched (its conditions hold)", hard_denies)
 
+    # Boundary: a grant it caps survives only if the boundary allows too.
+    if bnd_state is False:
+        identity_allows = [x for x in identity_allows if not capped_by_boundary(x)]
+        resource_allows = [x for x in resource_allows if not capped_by_boundary(x)]
+    allows = identity_allows + resource_allows
+    if not allows and bnd_state is False and any(eff(x) == "Allow" for x in considered):
+        return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                          "allowed by policy but outside the permissions boundary", [])
+
     # 2) Allow?
     if allows:
         # A Deny whose conditions are undecidable *might* block -> can't be Certain.
         # (Do not hard-block: that could hide a real path — we over-report instead.)
         maybe_denies = [x for x in denies if x[1] is cond.UNKNOWN]
-        sure_allows = [x for x in allows if x[1] is True]
+        sure_allows = [x for x in allows if x[1] is True
+                       and not (bnd_state is cond.UNKNOWN and capped_by_boundary(x))]
         via = ("the resource policy" if resource_allows and not identity_allows
                else "an identity policy")
-        if sure_allows and not maybe_denies:
+        if sure_allows and not maybe_denies and not guard_maybe:
             return EvalResult(Decision.ALLOW, Confidence.CERTAIN,
                               f"Allow matched in {via} (conditions, if any, hold)",
                               [x[0] for x in sure_allows])
-        if maybe_denies:
-            keys = [k for x in maybe_denies for k in x[2]]
-            why = (f"Allow matched in {via} but a Deny may apply, depending on "
-                   f"{_keys_text(keys)}")
-        else:
-            keys = [k for x in allows for k in x[2]]
-            why = f"Allow matched in {via} only if {_keys_text(keys)} permit it"
+        # POSSIBLE: name every key that kept it open (conditions, boundary, SCPs).
+        keys = [k for x in maybe_denies + allows for k in x[2]]
+        keys += bnd_keys if bnd_state is cond.UNKNOWN else []
+        keys += guard_keys if guard_maybe else []
+        why = (f"Allow matched in {via}"
+               + (" but a Deny may apply" if maybe_denies else "")
+               + f"; depends on {_keys_text(keys)}")
         return EvalResult(Decision.ALLOW, Confidence.POSSIBLE, why,
                           [x[0] for x in allows + maybe_denies], list(dict.fromkeys(keys)))
 

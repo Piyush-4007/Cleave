@@ -64,6 +64,18 @@ def _account_records(iam) -> list[dict]:
     return out
 
 
+def _boundary(getter, **kw) -> str | None:
+    """The permissions-boundary policy ARN of a user/role. ListUsers/ListRoles omit it,
+    so it costs one Get call per principal (free). If that call fails we report no
+    boundary, which can only over-report a path, never hide one."""
+    try:
+        entity = getter(**kw)
+        entity = entity.get("User") or entity.get("Role") or {}
+    except Exception:  # noqa: BLE001
+        return None
+    return (entity.get("PermissionsBoundary") or {}).get("PermissionsBoundaryArn")
+
+
 @collector("iam")
 def collect(ctx) -> list[dict]:
     iam = ctx.client("iam")
@@ -99,6 +111,7 @@ def collect(ctx) -> list[dict]:
             "UserId": u["UserId"], "CreateDate": u.get("CreateDate"),
             "AttachedPolicies": attached, "InlinePolicies": inline,
             "Groups": groups, "AccessKeys": keys,
+            "PermissionsBoundary": _boundary(iam.get_user, UserName=name),
         }
     out += ctx.map(user, paginate(iam, "list_users", "Users"))
 
@@ -115,6 +128,7 @@ def collect(ctx) -> list[dict]:
             "RoleId": r["RoleId"], "CreateDate": r.get("CreateDate"),
             "TrustPolicy": as_doc(r.get("AssumeRolePolicyDocument")),
             "AttachedPolicies": attached, "InlinePolicies": inline,
+            "PermissionsBoundary": _boundary(iam.get_role, RoleName=name),
         }
     out += ctx.map(role, paginate(iam, "list_roles", "Roles"))
 
@@ -158,6 +172,8 @@ def collect(ctx) -> list[dict]:
     collected = {r["_id"] for r in out if r["_type"] == "IamPolicy"}
     referenced = {arn for r in out if r["_type"] in ("IamUser", "IamRole", "IamGroup")
                   for arn in r.get("AttachedPolicies", [])}
+    # permissions boundaries are managed policies too, often attached to nothing else
+    referenced |= {r["PermissionsBoundary"] for r in out if r.get("PermissionsBoundary")}
     def managed_policy(arn: str) -> dict | None:
         try:
             meta = iam.get_policy(PolicyArn=arn)["Policy"]

@@ -1,0 +1,37 @@
+{
+  "name": "A bucket policy naming the user's ARN is not limited by the user's boundary",
+  "note": "AWS: in the same account, a resource-based policy that names an IAM user ARN is not limited by an implicit deny in that user's permissions boundary.",
+  "policies": [],
+  "boundary": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "ec2:*",
+        "Resource": "*"
+      }
+    ]
+  },
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::111122223333:user/alice"
+        },
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::data/report.csv"
+      }
+    ]
+  },
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::data/report.csv",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

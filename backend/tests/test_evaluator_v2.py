@@ -202,3 +202,152 @@ def test_full_admin_identities_get_no_takeover_edges():
     boss = admin_user("boss")
     g = graph_from_records([boss, plain_user("intern"), ADMIN])
     assert not rels_between(g, boss["_id"], f"{A}user/intern")
+
+
+# ---- stage 3: permissions boundaries and SCPs ------------------------------------------
+
+def policy(name, *statements):
+    return {"_type": "IamPolicy", "_id": f"{A}policy/{name}", "PolicyName": name,
+            "Document": {"Statement": list(statements)}}
+
+
+S3_ONLY = policy("s3-only", allow("s3:*"))
+
+
+def bounded(rec, boundary):
+    return {**rec, "PermissionsBoundary": boundary["_id"]}
+
+
+def org(levels=None, account="1", management="999", in_org=True):
+    return {"_type": "Organization", "_id": "account:organization", "InOrganization": in_org,
+            "OrgId": "o-test", "Account": account, "ManagementAccountId": management,
+            "ScpEnabled": True, "ScpLevels": levels}
+
+
+def test_boundary_caps_an_attach_policy_escalation():
+    """v1 ignored boundaries: AttachUserPolicy under an S3-only boundary was a path."""
+    dev = bounded(user("dev", allow("iam:AttachUserPolicy")), S3_ONLY)
+    assert find_paths(graph_from_records([dev, S3_ONLY, ADMIN])) == []
+    # positive control: a boundary that covers IAM leaves the escalation intact
+    iam_ok = policy("iam-ok", allow("iam:*"), allow("s3:*"))
+    dev2 = bounded(user("dev", allow("iam:AttachUserPolicy")), iam_ok)
+    assert len(find_paths(graph_from_records([dev2, iam_ok, ADMIN]))) == 1
+
+
+def test_bounded_administrator_is_not_baseline_admin():
+    """AdministratorAccess under an S3-only boundary is not full admin: it is a source
+    (a credential worth assessing), and it has no route to Admin."""
+    from cleave.paths.endpoints import find_sources, holds_full_admin
+    boss = bounded(admin_user("boss"), S3_ONLY)
+    g = graph_from_records([boss, S3_ONLY, ADMIN])
+    assert not holds_full_admin(g, boss["_id"])
+    assert boss["_id"] in {s.uid for s in find_sources(g)}
+    assert find_paths(g) == []
+
+
+def test_removable_boundary_is_no_guardrail():
+    """A principal that may delete its own boundary is one API call from uncapped."""
+    cap = policy("cap", allow("s3:*"), allow("iam:DeleteUserPermissionsBoundary"))
+    dev = bounded(user("dev", allow(["iam:AttachUserPolicy",
+                                     "iam:DeleteUserPermissionsBoundary"])), cap)
+    assert len(find_paths(graph_from_records([dev, cap, ADMIN]))) == 1
+
+
+def test_unreadable_boundary_keeps_the_path_but_only_possible():
+    dev = {**user("dev", allow("iam:AttachUserPolicy")),
+           "PermissionsBoundary": f"{A}policy/not-collected"}
+    paths = find_paths(graph_from_records([dev, ADMIN]))
+    assert len(paths) == 1 and paths[0].confidence == "Possible"
+
+
+def test_boundary_caps_data_access():
+    bucket = {"_type": "S3Bucket", "_id": "arn:aws:s3:::payroll", "Name": "payroll",
+              "Tags": {"environment": "production"}, "PublicAccessBlock": None, "Acl": []}
+    ec2_only = policy("ec2-only", allow("ec2:*"))
+    reader = bounded(user("reader", allow("s3:GetObject")), ec2_only)
+    assert find_paths(graph_from_records([reader, ec2_only, bucket])) == []
+    plain = user("reader", allow("s3:GetObject"))
+    assert len(find_paths(graph_from_records([plain, bucket]))) == 1
+
+
+def test_scp_deny_blocks_escalation_in_a_member_account():
+    dev = user("dev", allow("iam:AttachUserPolicy"))
+    deny_iam = {"Statement": [allow("*"), {"Effect": "Deny", "Action": "iam:*", "Resource": "*"}]}
+    assert find_paths(graph_from_records([dev, ADMIN, org([[deny_iam]])])) == []
+    # controls: not in an organization, or the management account itself
+    assert len(find_paths(graph_from_records([dev, ADMIN, org(in_org=False)]))) == 1
+    assert len(find_paths(graph_from_records(
+        [dev, ADMIN, org([[deny_iam]], account="999")]))) == 1
+
+
+def test_unreadable_scps_are_a_scan_caveat_not_a_downgrade():
+    from cleave.paths.analysis import analyze
+    dev = user("dev", allow("iam:AttachUserPolicy"))
+    g = graph_from_records([dev, ADMIN, org(levels=None)])
+    result = analyze(g)
+    assert len(result["paths"]) == 1 and result["paths"][0]["confidence"] == "Certain"
+    assert result["summary"]["scp_status"] == "unreadable"
+
+
+# ---- stage 3: the Organizations collector (fake client, no AWS) ------------------------
+
+class _FakeOrg:
+    """Just enough of the organizations client for read_organization()."""
+    def __init__(self, member_denied=False, not_in_org=False, mgmt="999"):
+        self.member_denied, self.not_in_org, self.mgmt = member_denied, not_in_org, mgmt
+
+    def _deny(self, code="AccessDeniedException"):
+        from botocore.exceptions import ClientError
+        raise ClientError({"Error": {"Code": code, "Message": "x"}}, "op")
+
+    def describe_organization(self):
+        if self.not_in_org:
+            self._deny("AWSOrganizationsNotInUseException")
+        return {"Organization": {"Id": "o-1", "MasterAccountId": self.mgmt, "FeatureSet": "ALL"}}
+
+    def list_roots(self):
+        if self.member_denied:
+            self._deny()
+        return {"Roots": [{"Id": "r-1", "PolicyTypes": [
+            {"Type": "SERVICE_CONTROL_POLICY", "Status": "ENABLED"}]}]}
+
+    def list_parents(self, ChildId):
+        return {"Parents": [{"Id": "ou-1", "Type": "ORGANIZATIONAL_UNIT"}]} if ChildId == "1" \
+            else {"Parents": [{"Id": "r-1", "Type": "ROOT"}]}
+
+    def get_paginator(self, name):
+        org = self
+
+        class P:
+            def paginate(self, TargetId, Filter):
+                yield {"Policies": [{"Id": f"p-{TargetId}"}]}
+        return P()
+
+    def describe_policy(self, PolicyId):
+        import json
+        return {"Policy": {"Content": json.dumps({"Statement": [
+            {"Effect": "Allow", "Action": "*", "Resource": "*", "Sid": PolicyId}]})}}
+
+
+def test_org_collector_reads_the_scp_hierarchy_root_first():
+    from cleave.collectors.organizations import read_organization
+    rec = read_organization(_FakeOrg(), "1")
+    assert rec["InOrganization"] and rec["OrgId"] == "o-1" and rec["ScpEnabled"]
+    sids = [lvl[0]["Statement"][0]["Sid"] for lvl in rec["ScpLevels"]]
+    assert sids == ["p-r-1", "p-ou-1", "p-1"]
+
+
+def test_org_collector_member_account_cannot_read_scps():
+    from cleave.collectors.organizations import read_organization
+    from cleave.iam.guardrails import scp_status
+    rec = read_organization(_FakeOrg(member_denied=True), "1")
+    assert rec["InOrganization"] and rec["ScpLevels"] is None
+    assert scp_status(rec) == "unreadable"
+
+
+def test_org_collector_standalone_account():
+    from cleave.collectors.organizations import read_organization
+    from cleave.iam.guardrails import scp_status
+    rec = read_organization(_FakeOrg(not_in_org=True), "1")
+    assert rec["InOrganization"] is False
+    assert scp_status(rec) == "not_in_organization"
