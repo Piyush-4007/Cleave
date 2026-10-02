@@ -1,0 +1,66 @@
+{
+  "name": "Same escalation permission, two boundaries: one caps it, one does not",
+  "ground_truth": "synthetic, Phase 7 permissions-boundary control",
+  "story": "dev-a and dev-b both hold iam:AttachUserPolicy on everything, which on its own is a complete escalation: attach AdministratorAccess to yourself. Both are delegated developers with a permissions boundary. dev-a's boundary (s3-and-logs) has no IAM in it, so the attach call is denied by the boundary and there is no path. dev-b's boundary (developer-boundary) allows iam:Attach* and does not stop it. v1 ignored boundaries and reported both; v2 reports dev-b only. The boundaries are attached to nothing else, so the collector fetched their documents via PermissionsBoundary.",
+  "records": [
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/dev-a",
+      "UserName": "dev-a",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/self-service-iam"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": [],
+      "PermissionsBoundary": "arn:aws:iam::111122223333:policy/s3-and-logs"
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/dev-b",
+      "UserName": "dev-b",
+      "AttachedPolicies": ["arn:aws:iam::111122223333:policy/self-service-iam"],
+      "Groups": [], "InlinePolicies": {}, "AccessKeys": [],
+      "PermissionsBoundary": "arn:aws:iam::111122223333:policy/developer-boundary"
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/self-service-iam",
+      "PolicyName": "self-service-iam",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["iam:AttachUserPolicy", "iam:List*", "s3:*"],
+         "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/s3-and-logs",
+      "PolicyName": "s3-and-logs",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:*", "logs:*"], "Resource": "*"}
+      ]}
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::111122223333:policy/developer-boundary",
+      "PolicyName": "developer-boundary",
+      "Document": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:*", "iam:List*", "iam:Attach*"], "Resource": "*"}
+      ]}
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/dev-b",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/dev-b",
+          "arn:aws:iam::111122223333:policy/self-service-iam",
+          "admin"
+        ],
+        "edges": ["HAS_ATTACHED", "GRANTS_ADMIN"],
+        "confidence": "Certain"
+      }
+    ],
+    "no_paths_from": ["arn:aws:iam::111122223333:user/dev-a"],
+    "total_paths": 1
+  }
+}
