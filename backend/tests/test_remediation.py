@@ -233,3 +233,26 @@ def test_s3_pab_uses_the_bucket_name_not_the_arn():
     from cleave.remediation.generate import _fix_public_bucket
     tf = _fix_public_bucket("arn:aws:s3:::my-data", graph_from_records([bucket])).terraform
     assert 'bucket                  = "my-data"' in tf and "arn:aws:s3" not in tf
+
+
+# ---- polish: clean slugs + installed-app settings loader -------------------------------
+
+def test_bundle_slug_strips_s3_arn():
+    from cleave.remediation.bundle import _slug
+    assert _slug("arn:aws:s3:::public-dump") == "public-dump"
+    assert _slug("arn:aws:iam::1:policy/foo") == "foo"
+
+
+def test_desktop_settings_env_loader(tmp_path, monkeypatch):
+    from cleave.desktop import _load_env_file
+    monkeypatch.delenv("CLEAVE_GITHUB_REPO", raising=False)
+    monkeypatch.setenv("ALREADY_SET", "keep")
+    f = tmp_path / "settings.env"
+    f.write_text('# comment\nCLEAVE_GITHUB_REPO=owner/repo\nCLEAVE_GITHUB_TOKEN="tok"\nALREADY_SET=override\n',
+                 encoding="utf-8")
+    _load_env_file(f)
+    import os
+    assert os.environ["CLEAVE_GITHUB_REPO"] == "owner/repo"
+    assert os.environ["CLEAVE_GITHUB_TOKEN"] == "tok"       # quotes stripped
+    assert os.environ["ALREADY_SET"] == "keep"              # never overrides
+    _load_env_file(tmp_path / "missing.env")                # no crash on missing

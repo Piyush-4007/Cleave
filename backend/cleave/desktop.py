@@ -42,6 +42,24 @@ def _exit_with_parent(pid: int) -> None:
     threading.Thread(target=watch, name="parent-watchdog", daemon=True).start()
 
 
+def _load_env_file(path: pathlib.Path) -> None:
+    """Load KEY=VALUE lines from a local settings file into the environment, without
+    overriding anything already set. Blank lines and `#` comments are ignored; a value may
+    be quoted. Best-effort: a missing or malformed file is simply skipped."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="cleave-backend")
     ap.add_argument("--port", type=int, required=True)
@@ -57,6 +75,11 @@ def main(argv: list[str] | None = None) -> None:
     os.environ["CLEAVE_GRAPH_STORE"] = "memory"
     os.environ.setdefault("CLEAVE_CORS_ORIGINS",
                           "http://tauri.localhost,https://tauri.localhost,tauri://localhost")
+    # Optional local settings for opt-in features whose secrets must NOT pass through the
+    # window — e.g. the teams PR flow's GitHub token. Put KEY=VALUE lines in
+    # <data-dir>/settings.env; read here before the app imports its config. Never
+    # overrides the values set above.
+    _load_env_file(pathlib.Path(args.data_dir) / "settings.env")
 
     if args.parent_pid:
         _exit_with_parent(args.parent_pid)

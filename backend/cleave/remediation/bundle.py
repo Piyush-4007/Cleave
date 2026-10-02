@@ -11,7 +11,10 @@ import pathlib
 
 
 def _slug(text: str) -> str:
-    keep = [c if (c.isalnum() or c in "-_") else "-" for c in text.split("/")[-1]]
+    # last path segment, then last ARN/colon segment: "arn:aws:s3:::public-dump" -> "public-dump",
+    # "arn:aws:iam::1:policy/foo" -> "foo"
+    base = text.split("/")[-1].split(":")[-1]
+    keep = [c if (c.isalnum() or c in "-_") else "-" for c in base]
     return "".join(keep).strip("-")[:50] or "fix"
 
 

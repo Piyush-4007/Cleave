@@ -184,9 +184,11 @@ def _account_of(uid: str) -> str:
     return parts[4] if uid.startswith("arn:") and len(parts) > 4 and parts[4] else "ACCOUNT"
 
 
-def _guidance(edge: dict, note: str, impact: str) -> Fix:
-    return Fix(rel=edge["rel"], target=edge.get("to") or edge.get("frm", ""),
-               title=f"Review: {edge.get('fix', 'scope this permission')}",
+def _guidance(edge: dict, note: str, impact: str,
+              target: str | None = None, title: str | None = None) -> Fix:
+    tgt = target or edge.get("to") or edge.get("frm", "")
+    return Fix(rel=edge["rel"], target=tgt,
+               title=title or f"Review {_short(tgt)}",
                note=note, impact=impact, confidence="guidance")
 
 
@@ -202,12 +204,14 @@ def _fix_grants_admin(edge: dict, g) -> Fix:
             "edited; detach it from the identity on this path and attach a policy scoped to "
             "only what that identity needs.",
             "Removes administrator access from whoever holds this policy — confirm the "
-            "identity's real duties first.")
+            "identity's real duties first.",
+            target=puid, title=f"Detach {_short(puid)} (AWS-managed admin)")
     # A customer/inline policy that reaches admin via a primitive: remove the primitive.
     new_doc, removed = _remove_actions(doc, sorted(ADMIN_EQUIVALENT_ACTIONS))
     if not removed:
         return _guidance(edge, f"{_short(puid)} reaches admin; scope its wildcard grant.",
-                         "Review the wildcard permission before narrowing it.")
+                         "Review the wildcard permission before narrowing it.",
+                         target=puid, title=f"Scope {_short(puid)}")
     if _is_empty(new_doc):
         # the policy existed only to grant the escalation — an empty policy is invalid,
         # so detach and delete it rather than emit a broken patch.
@@ -217,7 +221,8 @@ def _fix_grants_admin(edge: dict, g) -> Fix:
             "purpose is the escalation. Detach it from every identity that uses it and "
             "delete it; there is nothing in it worth keeping.",
             "Removes the policy entirely — make sure no identity relies on it for anything "
-            "else first (it grants only the dangerous action here).")
+            "else first (it grants only the dangerous action here).",
+            target=puid, title=f"Detach and delete {_short(puid)}")
     return Fix(
         rel=edge["rel"], target=puid,
         title=f"Remove admin-equivalent action(s) from {_short(puid)}",
@@ -253,7 +258,8 @@ def _fix_takeover(edge: dict, g) -> Fix:
             return _guidance(
                 edge, f"{_short(puid)} grants only {', '.join(actions)} — detach it from "
                 f"{_short(attacker)} and delete it rather than keeping an empty policy.",
-                "Removes the policy entirely; confirm nothing else relies on it.")
+                "Removes the policy entirely; confirm nothing else relies on it.",
+                target=puid, title=f"Detach and delete {_short(puid)}")
         acts = ", ".join(sorted(set(changed_acts)))
         return Fix(
             rel=edge["rel"], target=puid,
