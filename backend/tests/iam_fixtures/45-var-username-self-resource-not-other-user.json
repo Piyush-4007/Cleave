@@ -1,0 +1,25 @@
+{
+  "name": "Resource user/${aws:username} does NOT let alice create keys for bob",
+  "note": "The difference between self-service and account takeover.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:CreateAccessKey",
+          "Resource": "arn:aws:iam::111122223333:user/${aws:username}"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:CreateAccessKey",
+    "resource": "arn:aws:iam::111122223333:user/bob",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

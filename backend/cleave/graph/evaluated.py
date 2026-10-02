@@ -14,7 +14,7 @@ from ..reachability.engine import compute_reach
 from ..credscan import credential_edges
 
 
-def _edge(frm, to, rel, reason, evidence, confidence, by="iam.evaluator.v1", **extra):
+def _edge(frm, to, rel, reason, evidence, confidence, by="iam.evaluator.v2", **extra):
     return {"frm": frm, "to": to, "rel": rel, "props": {
         "reason": reason, "evidence": evidence,
         "confidence": confidence, "discovered_by": by, **extra}}
@@ -110,15 +110,16 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
         # Evaluate every launch action once for this principal (cached across roles).
         launch_actions = {a for routes in LAUNCH_SERVICES.values()
                           for route in routes for a in route}
-        allow = {a: is_allowed(docs, a, "*") for a in launch_actions}
-        add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*")
-        create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*")
+        me = pr["_id"]
+        allow = {a: is_allowed(docs, a, "*", principal=me) for a in launch_actions}
+        add_to_profile = is_allowed(docs, "iam:AddRoleToInstanceProfile", "*", principal=me)
+        create_profile = is_allowed(docs, "iam:CreateInstanceProfile", "*", principal=me)
         can_fill_profile = add_to_profile.decision is Decision.ALLOW and (
             bool(profiles) or create_profile.decision is Decision.ALLOW)
         for role in roles:
             if role["_id"] == pr["_id"]:
                 continue
-            pr_res = is_allowed(docs, "iam:PassRole", role["_id"])
+            pr_res = is_allowed(docs, "iam:PassRole", role["_id"], principal=me)
             if pr_res.decision is not Decision.ALLOW:
                 continue
             edges.append(_edge(pr["_id"], role["_id"], "CAN_PASS_ROLE",
@@ -129,11 +130,17 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
             for svc, routes in LAUNCH_SERVICES.items():
                 if svc not in trusted:
                     continue  # role does not trust this service
+                # v2: PassRole is often scoped with iam:PassedToService -- re-ask for
+                # THIS service, so an EC2-only grant cannot hand a role to Lambda.
+                svc_pass = is_allowed(docs, "iam:PassRole", role["_id"], principal=me,
+                                      context={"iam:PassedToService": svc})
+                if svc_pass.decision is not Decision.ALLOW:
+                    continue
                 for route in routes:
                     if any(allow[a].decision is not Decision.ALLOW for a in route):
                         continue  # this route is missing an action; try the next route
                     steps = list(route)
-                    buckets = [pr_res.bucket, *(allow[a].bucket for a in route)]
+                    buckets = [svc_pass.bucket, *(allow[a].bucket for a in route)]
                     if svc == "ec2.amazonaws.com" and role["_id"] not in in_a_profile:
                         if not can_fill_profile:
                             continue  # no instance profile can carry it

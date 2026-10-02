@@ -1,0 +1,34 @@
+{
+  "name": "Deny if StringNotEquals aws:PrincipalAccount = another account hits the caller -> DENY",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        },
+        {
+          "Effect": "Deny",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "StringNotEquals": {
+              "aws:PrincipalAccount": "999999999999"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:ListUsers",
+    "resource": "*",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

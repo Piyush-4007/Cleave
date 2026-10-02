@@ -1,0 +1,24 @@
+{
+  "name": "aws:username does not exist for a role -> the ${aws:username} resource matches nothing",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:CreateAccessKey",
+          "Resource": "arn:aws:iam::111122223333:user/${aws:username}"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:CreateAccessKey",
+    "resource": "arn:aws:iam::111122223333:user/ops-admin",
+    "principal": "arn:aws:iam::111122223333:role/ops-admin"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

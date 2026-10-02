@@ -1,0 +1,25 @@
+{
+  "name": "Resource user/${aws:username} lets alice manage alice",
+  "note": "The AWS self-service pattern. Without variable substitution the literal '${aws:username}' never matched.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:CreateAccessKey",
+          "Resource": "arn:aws:iam::111122223333:user/${aws:username}"
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:CreateAccessKey",
+    "resource": "arn:aws:iam::111122223333:user/alice",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

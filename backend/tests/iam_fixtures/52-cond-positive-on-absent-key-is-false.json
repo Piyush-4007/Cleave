@@ -1,0 +1,30 @@
+{
+  "name": "StringEquals aws:SourceAccount on a direct call (key absent) -> false -> DENY",
+  "note": "A confused-deputy guard meant for service calls. It grants nothing to an IAM principal calling directly.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:SourceAccount": "111122223333"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

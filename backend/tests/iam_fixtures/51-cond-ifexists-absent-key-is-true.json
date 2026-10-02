@@ -1,0 +1,29 @@
+{
+  "name": "StringEqualsIfExists on a key a direct call does not carry -> true -> CERTAIN",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "StringEqualsIfExists": {
+              "aws:SourceAccount": "999999999999"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

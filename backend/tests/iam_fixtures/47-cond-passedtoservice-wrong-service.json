@@ -1,0 +1,32 @@
+{
+  "name": "PassRole limited to lambda by iam:PassedToService, passed to EC2 -> DENY",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:PassRole",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "iam:PassedToService": "lambda.amazonaws.com"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:PassRole",
+    "resource": "arn:aws:iam::111122223333:role/r",
+    "principal": "arn:aws:iam::111122223333:user/alice",
+    "context": {
+      "iam:PassedToService": "ec2.amazonaws.com"
+    }
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

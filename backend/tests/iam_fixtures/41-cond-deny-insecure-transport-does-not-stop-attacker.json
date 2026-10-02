@@ -1,0 +1,35 @@
+{
+  "name": "Deny on aws:SecureTransport=false never applies: the attacker chooses TLS",
+  "note": "aws:SecureTransport is a property of the attacker's own request; every AWS SDK uses HTTPS. Not a guess in the attacker's favour.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*"
+        },
+        {
+          "Effect": "Deny",
+          "Action": "s3:*",
+          "Resource": "*",
+          "Condition": {
+            "Bool": {
+              "aws:SecureTransport": "false"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

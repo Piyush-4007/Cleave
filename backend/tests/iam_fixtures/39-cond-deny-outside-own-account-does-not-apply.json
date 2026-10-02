@@ -1,0 +1,35 @@
+{
+  "name": "Deny if StringNotEquals aws:PrincipalAccount = own account does not hit an in-account caller",
+  "note": "A data-perimeter style deny. v1 downgraded every in-account allow to POSSIBLE because of it.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        },
+        {
+          "Effect": "Deny",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "StringNotEquals": {
+              "aws:PrincipalAccount": "111122223333"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:ListUsers",
+    "resource": "*",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

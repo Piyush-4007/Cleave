@@ -1,0 +1,29 @@
+{
+  "name": "ArnLike aws:PrincipalArn role/ops-* matches role/ops-admin -> CERTAIN",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:PassRole",
+          "Resource": "*",
+          "Condition": {
+            "ArnLike": {
+              "aws:PrincipalArn": "arn:aws:iam::111122223333:role/ops-*"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:PassRole",
+    "resource": "arn:aws:iam::111122223333:role/x",
+    "principal": "arn:aws:iam::111122223333:role/ops-admin"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "Deny StringNotEquals PrincipalArn [alice, bob]: bob is listed, so NOR is false -> deny skipped",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        },
+        {
+          "Effect": "Deny",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "StringNotEquals": {
+              "aws:PrincipalArn": [
+                "arn:aws:iam::111122223333:user/alice",
+                "arn:aws:iam::111122223333:user/bob"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:ListUsers",
+    "resource": "*",
+    "principal": "arn:aws:iam::111122223333:user/bob"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

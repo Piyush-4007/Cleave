@@ -1,19 +1,24 @@
-"""IAM policy evaluator — v1.
+"""IAM policy evaluator — v2 (Phase 7: v1 + more stages, not a rewrite).
 
 Answers `is_allowed(policies, action, resource)` with a decision + confidence, and
 `grants_admin(policy)`. Deliberately conservative: anything it cannot decide statically
 becomes POSSIBLE, never a silent allow or deny.
 
 v1 scope (handbook): explicit Deny, identity policies, wildcard action/resource expansion,
-NotAction/NotResource, and conditions treated as "undecidable -> POSSIBLE". Deferred to v2
-(Phase 7): SCPs, permission boundaries, session policies, cross-account, real condition
-operators. Each deferral is marked `# TODO v2`.
+NotAction/NotResource, and conditions treated as "undecidable -> POSSIBLE".
+v2 adds, stage by stage:
+  * Conditions evaluated three-valued against a request context (iam/conditions.py):
+    decidable keys (who the caller is, what a direct SDK call carries) give CERTAIN or
+    DENY; request-time keys (SourceIp, MFA, time, tags) stay POSSIBLE and are NAMED in
+    the reason. Policy variables (${aws:username}) are substituted in Resource too.
+Remaining `# TODO v2` markers are the stages still to come.
 """
 from __future__ import annotations
 import fnmatch
 from dataclasses import dataclass, field
 from enum import Enum
 from .catalogue import ADMIN_EQUIVALENT_ACTIONS
+from . import conditions as cond
 
 
 class Decision(str, Enum):
@@ -32,6 +37,7 @@ class EvalResult:
     confidence: Confidence
     reason: str
     matched: list = field(default_factory=list)  # statements that decided it (edge evidence)
+    unknown_keys: list = field(default_factory=list)  # condition keys that kept it POSSIBLE
 
     @property
     def bucket(self) -> str:
@@ -67,13 +73,33 @@ def _action_matches(stmt: dict, action: str) -> bool:
     return False  # a statement with neither matches nothing
 
 
-def _resource_matches(stmt: dict, resource: str, resource_policy: bool = False) -> bool:
+def _any_pattern(patterns: list, resource: str, ctx: dict | None):
+    """Does any pattern match? Policy variables are substituted first: a known-absent
+    variable makes that pattern match nothing (AWS), an unknown one makes it UNKNOWN."""
+    unknown = False
+    for p in patterns:
+        if ctx is not None and "${" in p:
+            p = cond.substitute(p, ctx)
+            if p is cond.UNKNOWN:
+                unknown = True
+                continue
+            if p is cond.ABSENT:
+                continue
+        if _glob(p, resource, ci=False):
+            return True
+    return cond.UNKNOWN if unknown else False
+
+
+def _resource_matches(stmt: dict, resource: str, resource_policy: bool = False,
+                      ctx: dict | None = None):
+    """True / False / UNKNOWN (UNKNOWN only when a policy variable is unresolvable)."""
     res = _as_list(stmt.get("Resource"))
     if res:
-        return any(_glob(p, resource, ci=False) for p in res)
+        return _any_pattern(res, resource, ctx)
     nres = _as_list(stmt.get("NotResource"))
     if nres:
-        return not any(_glob(p, resource, ci=False) for p in nres)
+        hit = _any_pattern(nres, resource, ctx)
+        return cond.UNKNOWN if hit is cond.UNKNOWN else not hit
     # No Resource/NotResource. On a resource-BASED policy that means "this resource" — the
     # normal way bucket policies are written. On an identity policy it is not valid, and
     # treating it as a match would allow everything, so we stay conservative there.
@@ -131,14 +157,38 @@ def _statements(policies: list[dict]):
 
 # ---- the evaluator -------------------------------------------------------------------
 
+def _applies(st: dict, resource: str, ctx: dict, resource_policy: bool = False):
+    """Does a statement (whose Action already matched) apply to this request?
+    -> (True | False | UNKNOWN, unknown_keys)."""
+    rm = _resource_matches(st, resource, resource_policy, ctx)
+    if rm is False:
+        return False, []
+    c, keys = cond.evaluate(st.get("Condition"), ctx)
+    if c is False:
+        return False, []
+    if rm is cond.UNKNOWN:
+        keys = keys + ["<policy variable in Resource>"]
+    if rm is cond.UNKNOWN or c is cond.UNKNOWN:
+        return cond.UNKNOWN, keys
+    return True, []
+
+
+def _keys_text(keys: list[str]) -> str:
+    uniq = list(dict.fromkeys(keys))
+    return ", ".join(uniq[:4]) + (" ..." if len(uniq) > 4 else "")
+
+
 def is_allowed(policies: list[dict], action: str, resource: str,
                resource_policy: dict | None = None,
-               principal: str | None = None) -> EvalResult:
+               principal: str | None = None,
+               context: dict | None = None) -> EvalResult:
     """Evaluate whether `action` on `resource` is allowed.
 
     `policies` are the identity policy documents in force for the caller. Pass
     `resource_policy` (a bucket policy, key policy, secret policy, …) and `principal`
-    (the caller's ARN) to include the resource-based side of the decision.
+    (the caller's ARN) to include the resource-based side of the decision. `context`
+    adds request-context keys (e.g. {"iam:PassedToService": "ec2.amazonaws.com"}) on
+    top of what is derived from the principal (see conditions.request_context).
 
     Same-account semantics: an Allow in *either* the identity policy or the resource
     policy is sufficient, and an explicit Deny in either wins. That is what AWS does
@@ -148,51 +198,67 @@ def is_allowed(policies: list[dict], action: str, resource: str,
     the key policy is authoritative unless it delegates to IAM. Both currently
     over-allow, which is the v1 posture (over-report, never silently hide).
     """
-    identity = [st for st in _statements(policies)
-                if _action_matches(st, action) and _resource_matches(st, resource)]
+    ctx = cond.request_context(principal, context)
+
+    # (statement, applies, unknown_keys, side, principal-kind)
+    considered: list[tuple[dict, object, list, str, str]] = []
+    for st in _statements(policies):
+        if _action_matches(st, action):
+            ap, keys = _applies(st, resource, ctx)
+            if ap is not False:
+                considered.append((st, ap, keys, "identity", "explicit"))
 
     # The resource-based side also has to name us.
     account = _account_of(principal) or _account_of(resource)
-    res_matched: list[tuple[dict, str]] = []
     if resource_policy:
         for st in _statements([resource_policy]):
-            if not (_action_matches(st, action)
-                    and _resource_matches(st, resource, resource_policy=True)):
+            if not _action_matches(st, action):
                 continue
             kind = _principal_match_kind(st, principal, account)
-            if kind:
-                res_matched.append((st, kind))
+            if not kind:
+                continue
+            ap, keys = _applies(st, resource, ctx, resource_policy=True)
+            if ap is not False:
+                considered.append((st, ap, keys, "resource", kind))
 
-    denies = ([st for st in identity if st.get("Effect") == "Deny"]
-              + [st for st, _k in res_matched if st.get("Effect") == "Deny"])
-    identity_allows = [st for st in identity if st.get("Effect") == "Allow"]
+    def eff(x):
+        return x[0].get("Effect")
+
+    denies = [x for x in considered if eff(x) == "Deny"]
+    identity_allows = [x for x in considered if eff(x) == "Allow" and x[3] == "identity"]
     # A "delegated" resource Allow (Principal = account root) grants nothing the identity
     # policy does not already grant, so it is never an independent Allow.
-    resource_allows = [st for st, k in res_matched
-                       if st.get("Effect") == "Allow" and k == "explicit"]
+    resource_allows = [x for x in considered
+                       if eff(x) == "Allow" and x[3] == "resource" and x[4] == "explicit"]
     allows = identity_allows + resource_allows
 
-    # 1) explicit Deny.  Unconditional deny -> hard block (Certain).
-    hard_denies = [st for st in denies if "Condition" not in st]
+    # 1) explicit Deny that provably applies -> hard block (Certain).
+    hard_denies = [x[0] for x in denies if x[1] is True]
     if hard_denies:
         return EvalResult(Decision.DENY, Confidence.CERTAIN,
-                          "explicit Deny (unconditional) matched", hard_denies)
+                          "explicit Deny matched (its conditions hold)", hard_denies)
 
     # 2) Allow?
     if allows:
-        # A conditional Deny *might* block -> can't be Certain.  (Do not hard-block: that
-        # could hide a real path — we over-report instead, per v1 policy.)
-        cond_denies = [st for st in denies if "Condition" in st]
-        plain_allows = [st for st in allows if "Condition" not in st]
+        # A Deny whose conditions are undecidable *might* block -> can't be Certain.
+        # (Do not hard-block: that could hide a real path — we over-report instead.)
+        maybe_denies = [x for x in denies if x[1] is cond.UNKNOWN]
+        sure_allows = [x for x in allows if x[1] is True]
         via = ("the resource policy" if resource_allows and not identity_allows
                else "an identity policy")
-        if plain_allows and not cond_denies:
+        if sure_allows and not maybe_denies:
             return EvalResult(Decision.ALLOW, Confidence.CERTAIN,
-                              f"Allow matched in {via} (no blocking condition)", plain_allows)
-        why = f"Allow matched in {via} but gated by an unevaluated Condition"
-        if cond_denies:
-            why = f"Allow matched in {via} but a conditional Deny might apply"
-        return EvalResult(Decision.ALLOW, Confidence.POSSIBLE, why, allows + cond_denies)
+                              f"Allow matched in {via} (conditions, if any, hold)",
+                              [x[0] for x in sure_allows])
+        if maybe_denies:
+            keys = [k for x in maybe_denies for k in x[2]]
+            why = (f"Allow matched in {via} but a Deny may apply, depending on "
+                   f"{_keys_text(keys)}")
+        else:
+            keys = [k for x in allows for k in x[2]]
+            why = f"Allow matched in {via} only if {_keys_text(keys)} permit it"
+        return EvalResult(Decision.ALLOW, Confidence.POSSIBLE, why,
+                          [x[0] for x in allows + maybe_denies], list(dict.fromkeys(keys)))
 
     # 3) no matching Allow -> implicit deny
     return EvalResult(Decision.DENY, Confidence.CERTAIN,
@@ -202,9 +268,13 @@ def is_allowed(policies: list[dict], action: str, resource: str,
 def grants_admin(policy: dict) -> EvalResult:
     """Is this single policy document admin-equivalent? (`*:*`, or any admin-equivalent
     permission from the catalogue, allowed on a wildcard-ish resource.)"""
+    ctx = cond.request_context(None)
     for st in _statements([policy]):
         if st.get("Effect") != "Allow":
             continue
+        held, _keys = cond.evaluate(st.get("Condition"), ctx)
+        if held is False:
+            continue  # e.g. gated on aws:SourceAccount: never true for a direct call
         actions = _as_list(st.get("Action"))
         resources = _as_list(st.get("Resource"))
         wildcard_resource = any(r == "*" or r.endswith(":*") or r.endswith("/*") for r in resources)
@@ -214,7 +284,7 @@ def grants_admin(policy: dict) -> EvalResult:
                 # concrete action `cat`?  ("iam:*" covers "iam:PassRole"; "s3:GetObject"
                 # covers nothing dangerous)
                 if _glob(a, cat, ci=True):
-                    conf = Confidence.POSSIBLE if "Condition" in st else Confidence.CERTAIN
+                    conf = Confidence.CERTAIN if held is True else Confidence.POSSIBLE
                     if not wildcard_resource:
                         conf = Confidence.POSSIBLE  # scoped resource -> weaker claim
                     return EvalResult(Decision.ALLOW, conf,
@@ -231,8 +301,9 @@ def is_full_admin(policy: dict) -> bool:
     a privilege-escalation finding, so it is excluded as a path source. A principal
     holding only a primitive still has to escalate — and that escalation IS the finding.
     """
+    ctx = cond.request_context(None)
     for st in _statements([policy]):
-        if st.get("Effect") != "Allow" or "Condition" in st:
+        if st.get("Effect") != "Allow" or cond.evaluate(st.get("Condition"), ctx)[0] is not True:
             continue
         # TODO v2: NotAction-based admin ("NotAction": []) is admin too; rare, deferred.
         if any(a == "*" for a in _as_list(st.get("Action"))) and \

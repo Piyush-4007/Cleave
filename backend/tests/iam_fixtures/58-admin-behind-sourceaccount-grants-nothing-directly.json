@@ -1,0 +1,26 @@
+{
+  "name": "*:* gated by StringEquals aws:SourceAccount never applies to a direct call -> not admin",
+  "note": "The condition only matches when an AWS service calls on the account's behalf.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:SourceAccount": "111122223333"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  },
+  "expect_full_admin": false
+}

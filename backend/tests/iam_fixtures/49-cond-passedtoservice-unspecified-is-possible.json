@@ -1,0 +1,29 @@
+{
+  "name": "PassRole limited by iam:PassedToService with no target service in question -> POSSIBLE",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "iam:PassRole",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "iam:PassedToService": "lambda.amazonaws.com"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:PassRole",
+    "resource": "arn:aws:iam::111122223333:role/r",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  }
+}

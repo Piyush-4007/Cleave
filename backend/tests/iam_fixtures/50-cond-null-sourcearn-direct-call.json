@@ -1,0 +1,29 @@
+{
+  "name": "Null aws:SourceArn=true holds for a direct call (no service in between) -> CERTAIN",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "Null": {
+              "aws:SourceArn": "true"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "An operator the evaluator does not know stays POSSIBLE, never a silent allow or deny",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "StringSoundsLike": {
+              "aws:PrincipalArn": "arn:aws:iam::111122223333:user/alice"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  }
+}

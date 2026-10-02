@@ -1,0 +1,32 @@
+{
+  "name": "A condition block with one known-false key and one unknown key is false (AND) -> DENY",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:PrincipalArn": "arn:aws:iam::111122223333:user/bob"
+            },
+            "IpAddress": {
+              "aws:SourceIp": "10.0.0.0/8"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "DENY",
+    "confidence": "CERTAIN"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "Deny unless MFA: MFA presence is unknowable in advance -> ALLOW POSSIBLE",
+  "note": "Request-time key. Cleave does not assume either way; the evidence names the key.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*"
+        },
+        {
+          "Effect": "Deny",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "BoolIfExists": {
+              "aws:MultiFactorAuthPresent": "false"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "iam:ListUsers",
+    "resource": "*",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  }
+}

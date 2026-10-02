@@ -1,0 +1,25 @@
+{
+  "name": "*:* gated only by aws:SecureTransport=true is unconditional for an attacker -> full admin",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "*",
+          "Resource": "*",
+          "Condition": {
+            "Bool": {
+              "aws:SecureTransport": "true"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "expect_grants_admin": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  },
+  "expect_full_admin": true
+}

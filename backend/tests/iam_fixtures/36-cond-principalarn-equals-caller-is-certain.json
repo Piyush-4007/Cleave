@@ -1,0 +1,30 @@
+{
+  "name": "StringEquals aws:PrincipalArn naming the caller is decidable -> CERTAIN",
+  "note": "v1 said POSSIBLE for every Condition. The caller's own ARN is known at analysis time, so the grant is either certain or absent.",
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:PrincipalArn": "arn:aws:iam::111122223333:user/alice"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "query": {
+    "action": "s3:GetObject",
+    "resource": "arn:aws:s3:::b/k",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}
