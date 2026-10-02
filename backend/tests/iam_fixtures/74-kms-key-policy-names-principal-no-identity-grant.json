@@ -1,0 +1,27 @@
+{
+  "name": "KMS: key policy names this principal directly -> ALLOW with no identity grant",
+  "kms": true,
+  "policies": [],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": "*",
+        "Principal": {
+          "AWS": "arn:aws:iam::111122223333:user/alice"
+        }
+      }
+    ]
+  },
+  "query": {
+    "action": "kms:Decrypt",
+    "resource": "arn:aws:kms:us-east-1:111122223333:key/abcd-1234",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}

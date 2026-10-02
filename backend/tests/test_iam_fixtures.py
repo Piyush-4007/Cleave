@@ -18,7 +18,8 @@ every path ends on, and `is_full_admin` decides who is excluded as a path source
 import json
 import pathlib
 import pytest
-from cleave.iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision, Confidence
+from cleave.iam.evaluator import (is_allowed, is_allowed_kms, grants_admin,
+                                   is_full_admin, Decision, Confidence)
 
 FIX_DIR = pathlib.Path(__file__).parent / "iam_fixtures"
 FIXTURES = sorted(FIX_DIR.glob("*.json"))
@@ -31,10 +32,16 @@ def test_fixture(path):
 
     if "query" in fx:
         q, exp = fx["query"], fx["expect"]
-        res = is_allowed(fx["policies"], q["action"], q["resource"],
-                         resource_policy=fx.get("resource_policy"),
-                         principal=q.get("principal"), context=q.get("context"),
-                         boundary=fx.get("boundary"), scps=fx.get("scps"))
+        if fx.get("kms"):
+            res = is_allowed_kms(fx["policies"], q["action"], q["resource"],
+                                 fx.get("resource_policy"), principal=q.get("principal"),
+                                 context=q.get("context"), boundary=fx.get("boundary"),
+                                 scps=fx.get("scps"))
+        else:
+            res = is_allowed(fx["policies"], q["action"], q["resource"],
+                             resource_policy=fx.get("resource_policy"),
+                             principal=q.get("principal"), context=q.get("context"),
+                             boundary=fx.get("boundary"), scps=fx.get("scps"))
         assert res.decision.value == exp["decision"], f"{fx['name']}: {res.reason}"
         assert res.confidence.value == exp["confidence"], f"{fx['name']}: {res.reason}"
         checked = True
@@ -55,7 +62,7 @@ def test_fixture(path):
 
 def test_have_enough_fixtures():
     # handbook: ~20 fixtures by end of Phase 3. Fail if the suite ever shrinks.
-    assert len(FIXTURES) >= 71
+    assert len(FIXTURES) >= 78
 
 
 def test_decision_and_confidence_are_the_only_vocabulary():

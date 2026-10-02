@@ -1,0 +1,32 @@
+{
+  "name": "KMS: key policy names the principal but gates on aws:SourceIp -> POSSIBLE",
+  "kms": true,
+  "policies": [],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": "*",
+        "Principal": {
+          "AWS": "arn:aws:iam::111122223333:user/alice"
+        },
+        "Condition": {
+          "IpAddress": {
+            "aws:SourceIp": "10.0.0.0/8"
+          }
+        }
+      }
+    ]
+  },
+  "query": {
+    "action": "kms:Decrypt",
+    "resource": "arn:aws:kms:us-east-1:111122223333:key/abcd-1234",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  }
+}

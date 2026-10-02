@@ -352,6 +352,87 @@ def is_allowed(policies: list[dict], action: str, resource: str,
                       "no matching Allow (implicit deny)", [])
 
 
+def is_allowed_kms(policies: list[dict], action: str, resource: str,
+                   key_policy: dict | None, principal: str | None = None,
+                   context: dict | None = None, boundary=None, scps=None) -> EvalResult:
+    """KMS key-policy precedence (Phase 7 stage 5).
+
+    A KMS key is the one resource where the resource policy is authoritative: an identity
+    policy can act on the key ONLY IF the key policy enables IAM for it (an Allow to the
+    account root), or the key policy names the principal directly. This is unlike S3 or
+    Secrets Manager, where an identity Allow is sufficient on its own — so KMS gets its
+    own entry point rather than the `resource_policy=` same-account union in is_allowed().
+    (KMS grants, the CreateGrant mechanism, are dynamic runtime state a read-only scan
+    does not see; they are out of scope and noted, not guessed.)
+    """
+    ctx = cond.request_context(principal, context)
+    account = _account_of(principal) or _account_of(resource)
+
+    def identity():
+        return is_allowed(policies, action, resource, principal=principal,
+                          context=context, boundary=boundary, scps=scps)
+
+    if not key_policy:
+        # key policy unreadable: cannot confirm IAM is enabled on the key -> at most Possible
+        ident = identity()
+        if ident.decision is Decision.ALLOW:
+            return EvalResult(Decision.ALLOW, Confidence.POSSIBLE,
+                              "identity policy allows, but the key policy could not be read "
+                              "so IAM-enablement on the key is unknown", ident.matched,
+                              ["<key policy unreadable>"])
+        return ident  # no identity grant -> denied regardless of the key policy
+
+    deny, explicit, delegated = [], [], []   # each collects statement `applies` values
+    for st in _statements([key_policy]):
+        if not _action_matches(st, action):
+            continue
+        kind = _principal_match_kind(st, principal, account)
+        if not kind:
+            continue
+        ap, _keys = _applies(st, resource, ctx, resource_policy=True)
+        if ap is False:
+            continue
+        if st.get("Effect") == "Deny":
+            deny.append(ap)
+        elif kind == "explicit":
+            explicit.append(ap)
+        elif kind == "delegated":
+            delegated.append(ap)
+
+    if any(a is True for a in deny):
+        return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                          "explicit Deny in the KMS key policy", [])
+    maybe_deny = any(a is cond.UNKNOWN for a in deny)
+
+    if any(a is True for a in explicit):
+        conf = Confidence.POSSIBLE if maybe_deny else Confidence.CERTAIN
+        return EvalResult(Decision.ALLOW, conf,
+                          "the KMS key policy grants this principal directly", [])
+
+    if any(a in (True, cond.UNKNOWN) for a in delegated):
+        ident = identity()
+        if ident.decision is Decision.ALLOW:
+            certain = (ident.confidence is Confidence.CERTAIN
+                       and all(a is True for a in delegated) and not maybe_deny)
+            return EvalResult(Decision.ALLOW,
+                              Confidence.CERTAIN if certain else Confidence.POSSIBLE,
+                              "the key policy delegates to IAM (Allow to the account root) "
+                              "and the identity policy allows the action", ident.matched,
+                              ident.unknown_keys)
+        return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                          "the key policy delegates to IAM but no identity policy allows "
+                          "the action", [])
+
+    if any(a is cond.UNKNOWN for a in explicit):
+        return EvalResult(Decision.ALLOW, Confidence.POSSIBLE,
+                          "the KMS key policy may grant this principal (an unevaluated "
+                          "condition)", [])
+
+    return EvalResult(Decision.DENY, Confidence.CERTAIN,
+                      "the KMS key policy neither names this principal nor delegates to "
+                      "IAM; an identity policy cannot grant access to the key", [])
+
+
 def grants_admin(policy: dict) -> EvalResult:
     """Is this single policy document admin-equivalent? (`*:*`, or any admin-equivalent
     permission from the catalogue, allowed on a wildcard-ish resource.)"""

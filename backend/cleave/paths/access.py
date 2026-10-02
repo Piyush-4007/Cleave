@@ -21,7 +21,7 @@ graph, which is what `networkx.shortest_simple_paths` needs.
 """
 from __future__ import annotations
 import logging
-from ..iam.evaluator import Decision, is_allowed
+from ..iam.evaluator import Decision, is_allowed, is_allowed_kms
 from ..iam.guardrails import ORG_ID, guardrails
 
 log = logging.getLogger("cleave.paths.access")
@@ -51,6 +51,9 @@ ACCESS_MODEL = {
     "KmsKey": {
         "CAN_READ": {"action": "kms:Decrypt", "resource": "{uid}"},
         "policy_field": "Policy",
+        # the key policy is authoritative: evaluate via is_allowed_kms, not the
+        # identity-or-resource union (Phase 7 stage 5)
+        "key_policy_authoritative": True,
     },
     "DynamoDbTable": {
         "CAN_READ": {"action": "dynamodb:GetItem", "resource": "{uid}"},
@@ -144,13 +147,18 @@ def access_edges(g, principal_uids, target_uids) -> list[dict]:
             record = g.nodes[t_uid].get("record") or {}
             model = ACCESS_MODEL[g.nodes[t_uid]["label"]]
             res_policy = record.get(model.get("policy_field") or "") or None
+            authoritative = model.get("key_policy_authoritative")
             for rel, spec in model.items():
-                if rel == "policy_field":
+                if rel in ("policy_field", "key_policy_authoritative"):
                     continue
                 evaluated += 1
-                res = is_allowed(docs, spec["action"],
-                                 spec["resource"].format(uid=t_uid),
-                                 resource_policy=res_policy, principal=p_uid, **guard)
+                res_arn = spec["resource"].format(uid=t_uid)
+                if authoritative:
+                    res = is_allowed_kms(docs, spec["action"], res_arn, res_policy,
+                                         principal=p_uid, **guard)
+                else:
+                    res = is_allowed(docs, spec["action"], res_arn,
+                                     resource_policy=res_policy, principal=p_uid, **guard)
                 if res.decision is not Decision.ALLOW:
                     continue
                 edges.append({"frm": p_uid, "to": t_uid, "rel": rel, "props": {

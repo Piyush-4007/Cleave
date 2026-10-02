@@ -1,0 +1,27 @@
+{
+  "name": "KMS: identity allows but the key policy could not be read -> POSSIBLE",
+  "note": "Without the key policy we cannot confirm IAM is enabled on the key; over-report rather than claim Certain.",
+  "kms": true,
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "kms:Decrypt",
+          "Resource": "arn:aws:kms:us-east-1:111122223333:key/abcd-1234"
+        }
+      ]
+    }
+  ],
+  "resource_policy": null,
+  "query": {
+    "action": "kms:Decrypt",
+    "resource": "arn:aws:kms:us-east-1:111122223333:key/abcd-1234",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "POSSIBLE"
+  }
+}

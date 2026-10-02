@@ -1,0 +1,39 @@
+{
+  "name": "KMS: identity kms:Decrypt + key policy delegates to the account root -> ALLOW",
+  "note": "The default AWS key policy delegates to IAM via an Allow to the account root; then identity policies decide, as normal.",
+  "kms": true,
+  "policies": [
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": "kms:Decrypt",
+          "Resource": "arn:aws:kms:us-east-1:111122223333:key/abcd-1234"
+        }
+      ]
+    }
+  ],
+  "resource_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "kms:*",
+        "Resource": "*",
+        "Principal": {
+          "AWS": "arn:aws:iam::111122223333:root"
+        }
+      }
+    ]
+  },
+  "query": {
+    "action": "kms:Decrypt",
+    "resource": "arn:aws:kms:us-east-1:111122223333:key/abcd-1234",
+    "principal": "arn:aws:iam::111122223333:user/alice"
+  },
+  "expect": {
+    "decision": "ALLOW",
+    "confidence": "CERTAIN"
+  }
+}
