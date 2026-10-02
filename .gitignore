@@ -19,3 +19,7 @@ desktop/src-tauri/resources/backend/
 desktop/src-tauri/target/
 desktop/node_modules/
 desktop/src-tauri/gen/
+
+# Phase 7 measurement: local scans + results carry account ids/ARNs
+eval/corpus/
+eval/results/
