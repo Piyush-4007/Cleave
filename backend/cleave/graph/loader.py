@@ -206,11 +206,10 @@ def derive_structural_edges(records: list[dict]) -> Iterable[dict]:
             yield _edge(r["_id"], r["Role"], "EXECUTES_AS",
                         f"{t} runs as this role", f"{r['_id']}#Role")
 
-        if t == "IamRole" and isinstance(r.get("TrustPolicy"), dict):
-            for principal in _trust_principals(r["TrustPolicy"]):
-                yield _edge(principal, r["_id"], "CAN_ASSUME",
-                            "principal is trusted to assume this role",
-                            f"{r['_id']}#TrustPolicy", confidence="Certain")
+        # CAN_ASSUME is now an evaluated, condition-aware edge (graph/evaluated.py
+        # assume_role_edges): it needs identity-policy evaluation for account-root
+        # delegation and trust-Condition evaluation, neither of which belongs in the
+        # pure structural layer.
 
         if t == "Subnet":
             if r.get("VpcId"):
@@ -272,26 +271,3 @@ def stub_nodes(edges, by_id):
                     "_type": "Principal", "_id": uid, "Name": uid})
             # anything else (e.g. igw-, subnet-) is a real collected node or absent; skip
 
-def _trust_principals(trust: dict) -> list[str]:
-    """Pull AWS/Service principals out of a role trust policy (Allow + sts:AssumeRole)."""
-    out: list[str] = []
-    stmts = trust.get("Statement", [])
-    if isinstance(stmts, dict):
-        stmts = [stmts]
-    for st in stmts:
-        if st.get("Effect") != "Allow":
-            continue
-        pr = st.get("Principal", {})
-        if pr == "*":
-            out.append("*")
-            continue
-        if isinstance(pr, dict):
-            aws = pr.get("AWS")
-            if isinstance(aws, str):
-                out.append(aws)
-            elif isinstance(aws, list):
-                out.extend(aws)
-            svc = pr.get("Service")
-            for s in ([svc] if isinstance(svc, str) else (svc or [])):
-                out.append(f"service:{s}")
-    return out

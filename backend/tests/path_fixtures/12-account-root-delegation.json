@@ -1,0 +1,112 @@
+{
+  "name": "Account-root delegation: only the user that also holds sts:AssumeRole gets in",
+  "ground_truth": "synthetic, Phase 7 stage 4 (CAN_ASSUME delegation)",
+  "story": "admin-access-role grants AdministratorAccess and trusts the whole account (Principal AWS = account root). In AWS that delegates the decision to each principal's own policy: only someone who ALSO holds sts:AssumeRole on the role can assume it. engineer does; viewer does not. v1 drew CAN_ASSUME from a synthetic '...:root' node that no real principal connected to, so this escalation was INVISIBLE (0 paths). v2 resolves the delegation to engineer and finds the one real path.",
+  "records": [
+    {
+      "_type": "IamRole",
+      "_id": "arn:aws:iam::111122223333:role/admin-access-role",
+      "RoleName": "admin-access-role",
+      "AttachedPolicies": [
+        "arn:aws:iam::aws:policy/AdministratorAccess"
+      ],
+      "InlinePolicies": {},
+      "TrustPolicy": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::111122223333:root"
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      }
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/engineer",
+      "UserName": "engineer",
+      "AttachedPolicies": [],
+      "Groups": [],
+      "AccessKeys": [],
+      "InlinePolicies": {
+        "p": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Resource": "arn:aws:iam::111122223333:role/admin-access-role"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/viewer",
+      "UserName": "viewer",
+      "AttachedPolicies": [],
+      "Groups": [],
+      "AccessKeys": [],
+      "InlinePolicies": {
+        "p": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "ec2:Describe*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+      "PolicyName": "AdministratorAccess",
+      "ManagedBy": "AWS",
+      "Document": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "*",
+            "Resource": "*"
+          }
+        ]
+      }
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::111122223333:user/engineer",
+        "source_kind": "ASSUMED_COMPROMISE",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::111122223333:user/engineer",
+          "arn:aws:iam::111122223333:role/admin-access-role",
+          "arn:aws:iam::aws:policy/AdministratorAccess",
+          "admin"
+        ],
+        "edges": [
+          "CAN_ASSUME",
+          "HAS_ATTACHED",
+          "GRANTS_ADMIN"
+        ],
+        "confidence": "Certain"
+      }
+    ],
+    "no_paths_from": [
+      "arn:aws:iam::111122223333:user/viewer"
+    ],
+    "total_paths": 1
+  }
+}

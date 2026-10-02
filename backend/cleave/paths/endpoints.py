@@ -208,10 +208,18 @@ def role_source_note(uid: str, rec: dict, workloads: dict[str, str]) -> str | No
 
 # ---- the source set ------------------------------------------------------------------
 
+def _principal_account(uid: str) -> str | None:
+    return uid.split(":")[4] if uid.startswith("arn:aws:iam::") and len(uid.split(":")) > 4 else None
+
+
 def find_sources(g: nx.DiGraph) -> list[Source]:
     sources: list[Source] = []
     workloads = _workload_roles(g)
     oidc_hosts = _oidc_hosts(g)
+    # the account(s) under analysis — anything outside them is another account's principal
+    local_accounts = {_principal_account(uid) for uid, d in g.nodes(data=True)
+                      if d.get("label") in PRINCIPAL_LABELS}
+    local_accounts.discard(None)
 
     if _internet_is_live(g):
         sources.append(Source("internet", EXTERNAL,
@@ -238,12 +246,17 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
                                   f"{uid}#PublicRoutes"))
 
         elif label == "Principal" and uid == "*":
-            # a role trust policy naming Principal "*". The Phase 2 loader does not yet
-            # evaluate trust Conditions, so this can over-report — v1 over-reports on
-            # purpose rather than silently dropping a real external entry point.
             sources.append(Source(uid, EXTERNAL,
                                   "a role trust policy names Principal '*' (any principal)",
                                   "IamRole#TrustPolicy"))
+
+        elif label == "Principal" and _principal_account(uid) and \
+                _principal_account(uid) not in local_accounts:
+            # a role trust policy names a principal in ANOTHER account: an attacker who
+            # controls that account (or that principal) has a foothold here (Phase 7).
+            sources.append(Source(uid, EXTERNAL,
+                                  f"a role trusts a principal in another account "
+                                  f"({_principal_account(uid)})", "IamRole#TrustPolicy"))
 
         elif label in PRINCIPAL_LABELS:
             # IRSA is checked before the already-admin exclusion: a pod assuming an
@@ -270,7 +283,4 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
                 f"non-admin principal{note} — treated as a compromised credential",
                 f"{uid}#identity"))
 
-    # TODO v2: cross-account `arn:aws:iam::<other>:root` trust principals are external
-    # entry points too (+0.5 in the Phase 5 score). Left out of v1 to keep the source set
-    # defensible; add here, not in search.
     return sources

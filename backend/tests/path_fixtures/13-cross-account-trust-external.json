@@ -1,0 +1,90 @@
+{
+  "name": "Cross-account trust is an external entry point",
+  "ground_truth": "synthetic, Phase 7 stage 4 (cross-account)",
+  "story": "vendor-access grants AdministratorAccess and trusts another account's root (arn:aws:iam::999888777666:root). An attacker who controls any principal in that account can assume it and own this one. v1 had no notion of cross-account entry points (a documented TODO), so it reported nothing. v2 adds the external source. The local read-only user is not a path.",
+  "records": [
+    {
+      "_type": "IamRole",
+      "_id": "arn:aws:iam::111122223333:role/vendor-access",
+      "RoleName": "vendor-access",
+      "AttachedPolicies": [
+        "arn:aws:iam::aws:policy/AdministratorAccess"
+      ],
+      "InlinePolicies": {},
+      "TrustPolicy": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::999888777666:root"
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      }
+    },
+    {
+      "_type": "IamUser",
+      "_id": "arn:aws:iam::111122223333:user/local-ro",
+      "UserName": "local-ro",
+      "AttachedPolicies": [],
+      "Groups": [],
+      "AccessKeys": [],
+      "InlinePolicies": {
+        "p": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "_type": "IamPolicy",
+      "_id": "arn:aws:iam::aws:policy/AdministratorAccess",
+      "PolicyName": "AdministratorAccess",
+      "ManagedBy": "AWS",
+      "Document": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "*",
+            "Resource": "*"
+          }
+        ]
+      }
+    }
+  ],
+  "expect": {
+    "paths": [
+      {
+        "source": "arn:aws:iam::999888777666:root",
+        "source_kind": "EXTERNAL",
+        "sink": "admin",
+        "nodes": [
+          "arn:aws:iam::999888777666:root",
+          "arn:aws:iam::111122223333:role/vendor-access",
+          "arn:aws:iam::aws:policy/AdministratorAccess",
+          "admin"
+        ],
+        "edges": [
+          "CAN_ASSUME",
+          "HAS_ATTACHED",
+          "GRANTS_ADMIN"
+        ],
+        "confidence": "Certain"
+      }
+    ],
+    "no_paths_from": [
+      "arn:aws:iam::111122223333:user/local-ro"
+    ],
+    "total_paths": 1
+  }
+}

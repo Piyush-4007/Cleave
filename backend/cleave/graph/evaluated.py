@@ -10,6 +10,8 @@ Pure transform over normalised records — no AWS calls.
 from __future__ import annotations
 import fnmatch
 from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
+from ..iam import conditions as cond
+from ..iam.evaluator import _account_of
 from ..iam.guardrails import ORG_ID, boundary_below_full_admin, guardrails, scp_levels
 from ..iam.catalogue import ADMIN_EQUIVALENT_ACTIONS, LAUNCH_SERVICES, TAKEOVER_ACTIONS
 from ..reachability.engine import compute_reach
@@ -202,6 +204,126 @@ def takeover_edges(records: list[dict], principals: list[dict], eff_docs,
     return out
 
 
+def _trust_statements(role: dict):
+    """Yield (aws_principal_values, is_wildcard, condition) for each Allow statement in a
+    role's trust policy. Service- and Federated-only statements yield no AWS values (they
+    are handled elsewhere: Service by launch/workload logic, Federated by IRSA sources)."""
+    stmts = (role.get("TrustPolicy") or {}).get("Statement", [])
+    for st in ([stmts] if isinstance(stmts, dict) else stmts or []):
+        if not isinstance(st, dict) or st.get("Effect") != "Allow":
+            continue
+        if "sts:AssumeRole" not in {a for a in (st.get("Action") if isinstance(st.get("Action"), list)
+                                                else [st.get("Action")]) if a}:
+            # AssumeRoleWithSAML/WithWebIdentity are federation, not a principal-to-role edge
+            if st.get("Action") not in ("sts:AssumeRole", "sts:*", "*"):
+                continue
+        pr = st.get("Principal")
+        if pr == "*":
+            yield [], True, st.get("Condition")
+            continue
+        if not isinstance(pr, dict):
+            continue
+        aws = pr.get("AWS")
+        vals = [str(v) for v in (aws if isinstance(aws, list) else [aws]) if aws is not None]
+        wildcard = "*" in vals
+        yield [v for v in vals if v != "*"], wildcard, st.get("Condition")
+
+
+def _norm_account_principal(pv: str) -> str:
+    """A Principal "AWS" value of a bare account id means that account's root."""
+    return f"arn:aws:iam::{pv}:root" if pv.isdigit() and len(pv) == 12 else pv
+
+
+def _is_account_root(pv: str) -> str | None:
+    """The account id, if pv is an account-root principal (delegates to the whole account)."""
+    if pv.endswith(":root"):
+        return _account_of(pv)
+    return None
+
+
+def _trust_bucket(condition, principal: str | None) -> str | None:
+    """Evaluate a trust Condition for a candidate assumer. Returns the confidence bucket
+    ("Certain"/"Possible") or None when the condition is decidably false. With principal
+    None (a `*` or cross-account assumer we cannot identify), principal-specific keys are
+    unknown, so a restrictive condition stays Possible rather than being dropped."""
+    held, _keys = cond.evaluate(condition, cond.request_context(principal))
+    if held is False:
+        return None
+    return "Certain" if held is True else "Possible"
+
+
+def assume_role_edges(records, principals, roles, eff_docs, guard_of) -> list[dict]:
+    """CAN_ASSUME, condition-aware (Phase 7 stage 4). Replaces the v1 structural edge.
+
+    Three shapes, from a role's trust policy:
+      * trust names a specific principal ARN (same account): the trust is sufficient on
+        its own -- no identity grant needed -- so CAN_ASSUME from that principal.
+      * trust names the account root (or a bare account id = that account's root): this
+        DELEGATES to the account. A principal can assume only if its OWN identity policy
+        also allows sts:AssumeRole on the role. v1 drew the edge from a dead "...:root"
+        node instead, so these same-account paths were invisible.
+      * trust names `*` or another account's root/principal: an external entry point. The
+        edge is drawn from that principal node; find_sources marks it EXTERNAL.
+    Trust Conditions are evaluated per candidate assumer; an unknowable one (sts:ExternalId,
+    aws:SourceIp, ...) keeps the edge but only Possible.
+    """
+    local_accounts = {_account_of(p["_id"]) for p in principals} | {
+        _account_of(r["_id"]) for r in roles}
+    local_accounts.discard(None)
+    by_id = {p["_id"]: p for p in principals}
+    out: list[dict] = []
+
+    for role in roles:
+        rid = role["_id"]
+        for values, wildcard, condition in _trust_statements(role):
+            if wildcard:
+                b = _trust_bucket(condition, None)
+                if b:
+                    out.append(_edge("*", rid, "CAN_ASSUME",
+                                     "role trust policy allows Principal '*' (anyone)",
+                                     f"{rid}#TrustPolicy", b))
+            for pv in values:
+                pv = _norm_account_principal(pv)
+                root_acct = _is_account_root(pv)
+                if root_acct and root_acct in local_accounts:
+                    # same-account delegation: resolve to principals that also hold the grant
+                    for pr in principals:
+                        if pr["_id"] == rid:
+                            continue
+                        tb = _trust_bucket(condition, pr["_id"])
+                        if tb is None:
+                            continue
+                        docs = eff_docs(pr)
+                        if not docs:
+                            continue
+                        res = is_allowed(docs, "sts:AssumeRole", rid, principal=pr["_id"],
+                                         **guard_of(pr, docs))
+                        if res.decision is not Decision.ALLOW:
+                            continue
+                        conf = "Possible" if "Possible" in (tb, res.bucket) else "Certain"
+                        out.append(_edge(pr["_id"], rid, "CAN_ASSUME",
+                                         "role trusts the account; this identity holds "
+                                         "sts:AssumeRole on it", f"{rid}#TrustPolicy;"
+                                         f"{pr['_id']}#effective-policies", conf))
+                    continue
+                # a specific principal (same account: trust alone suffices; cross account:
+                # external foothold). Either way the edge is from that principal.
+                acct = _account_of(pv)
+                if acct in local_accounts and pv in by_id:
+                    tb = _trust_bucket(condition, pv)
+                    if tb:
+                        out.append(_edge(pv, rid, "CAN_ASSUME",
+                                         "role trust policy names this principal directly",
+                                         f"{rid}#TrustPolicy", tb))
+                elif acct and acct not in local_accounts:
+                    tb = _trust_bucket(condition, None)
+                    if tb:
+                        out.append(_edge(pv, rid, "CAN_ASSUME",
+                                         "role trust policy names a principal in another "
+                                         f"account ({acct})", f"{rid}#TrustPolicy", tb))
+    return out
+
+
 def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ()) -> list[dict]:
     policy_docs = {r["_id"]: r.get("Document")
                    for r in records if r["_type"] == "IamPolicy"}
@@ -320,6 +442,9 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
 
     # ---- precise identity takeover (Phase 7) ----
     edges += takeover_edges(records, principals, eff_docs, guard_of)
+
+    # ---- role assumption, condition-aware + cross-account (Phase 7 stage 4) ----
+    edges += assume_role_edges(records, principals, roles, eff_docs, guard_of)
 
     # ---- CAN_REACH (Internet -> resource) ----
     edges += compute_reach(records)

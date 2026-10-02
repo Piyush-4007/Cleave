@@ -351,3 +351,109 @@ def test_org_collector_standalone_account():
     rec = read_organization(_FakeOrg(not_in_org=True), "1")
     assert rec["InOrganization"] is False
     assert scp_status(rec) == "not_in_organization"
+
+
+# ---- stage 4: role assumption (CAN_ASSUME) + cross-account ------------------------------
+# v1 derived CAN_ASSUME structurally and had two defects: a trust naming the account root
+# drew an edge from a dead-end "...:root" node (so same-account delegation found NO path),
+# and trust Conditions were ignored. v2 resolves account-root delegation to real
+# principals (trust + identity sts:AssumeRole), evaluates trust Conditions, and makes a
+# cross-account trust an external entry point.
+
+CROSS = "arn:aws:iam::999999999999:"
+
+
+def role_trusting(name, principal, condition=None, attach=ADMIN):
+    st = {"Effect": "Allow", "Principal": principal, "Action": "sts:AssumeRole"}
+    if condition:
+        st["Condition"] = condition
+    return {"_type": "IamRole", "_id": f"{A}role/{name}", "RoleName": name,
+            "AttachedPolicies": [attach["_id"]], "InlinePolicies": {},
+            "TrustPolicy": {"Version": "2012-10-17", "Statement": [st]}}
+
+
+def assumer(name, *, can_assume_role=None):
+    acts = ["sts:AssumeRole"] if can_assume_role else ["s3:GetObject"]
+    res = can_assume_role or "*"
+    return {"_type": "IamUser", "_id": f"{A}user/{name}", "UserName": name,
+            "AttachedPolicies": [], "Groups": [], "InlinePolicies": {"p": {"Statement": [
+                {"Effect": "Allow", "Action": acts, "Resource": res}]}}, "AccessKeys": []}
+
+
+def test_account_root_delegation_needs_the_identity_grant():
+    """Role trusts the whole account. A user with sts:AssumeRole on it reaches admin;
+    a user without it does not. v1 found NEITHER (edge went to a dead ...:root node)."""
+    role = role_trusting("shared", {"AWS": f"{A}root"})
+    yes = assumer("eng", can_assume_role=role["_id"])
+    no = assumer("intern")
+    g = graph_from_records([role, yes, no, ADMIN])
+    assert rel_conf(g, yes["_id"], role["_id"], "CAN_ASSUME") == "Certain"
+    assert rel_conf(g, no["_id"], role["_id"], "CAN_ASSUME") is None
+    paths = find_paths(g)
+    assert len(paths) == 1 and paths[0].source.uid == yes["_id"]
+
+
+def test_direct_principal_trust_needs_no_identity_grant():
+    """A trust naming the user's ARN directly is sufficient on its own (same account)."""
+    role = role_trusting("app", {"AWS": f"{A}user/dev"})
+    dev = assumer("dev")  # no sts:AssumeRole in its own policy
+    g = graph_from_records([role, dev, ADMIN])
+    assert rel_conf(g, dev["_id"], role["_id"], "CAN_ASSUME") == "Certain"
+    assert len(find_paths(g)) == 1
+
+
+def test_trust_condition_restricts_which_principal_may_assume():
+    """Role trusts the account root but only if aws:PrincipalArn is eng. Only eng gets
+    the edge, even though both hold sts:AssumeRole. v1 ignored the condition entirely."""
+    role = role_trusting("scoped", {"AWS": f"{A}root"},
+                         condition={"ArnEquals": {"aws:PrincipalArn": f"{A}user/eng"}})
+    eng = assumer("eng", can_assume_role=role["_id"])
+    ops = assumer("ops", can_assume_role=role["_id"])
+    g = graph_from_records([role, eng, ops, ADMIN])
+    assert rel_conf(g, eng["_id"], role["_id"], "CAN_ASSUME") == "Certain"
+    assert rel_conf(g, ops["_id"], role["_id"], "CAN_ASSUME") is None
+
+
+def test_unknowable_trust_condition_is_possible():
+    """sts:ExternalId is set by the caller at assume time: unknowable statically."""
+    role = role_trusting("ext", {"AWS": f"{A}user/partner-proxy"},
+                         condition={"StringEquals": {"sts:ExternalId": "secret-123"}})
+    dev = assumer("partner-proxy")
+    g = graph_from_records([role, dev, ADMIN])
+    assert rel_conf(g, dev["_id"], role["_id"], "CAN_ASSUME") == "Possible"
+
+
+def test_cross_account_root_trust_is_an_external_entry_point():
+    """Role trusts another account entirely. That is an external attacker's foothold if
+    they control (any principal in) the other account."""
+    from cleave.paths.endpoints import find_sources
+    from cleave.paths.model import EXTERNAL
+    role = role_trusting("vendor", {"AWS": f"{CROSS}root"})
+    g = graph_from_records([role, ADMIN])
+    srcs = {s.uid: s for s in find_sources(g)}
+    ext = f"{CROSS}root"
+    assert ext in srcs and srcs[ext].kind == EXTERNAL
+    paths = find_paths(g)
+    assert paths and paths[0].source.uid == ext and paths[0].sink.kind == "ADMIN"
+
+
+def test_cross_account_specific_principal_trust_is_external():
+    role = role_trusting("partner", {"AWS": f"{CROSS}role/ci-deployer"})
+    g = graph_from_records([role, ADMIN])
+    from cleave.paths.endpoints import find_sources
+    assert f"{CROSS}role/ci-deployer" in {s.uid for s in find_sources(g)}
+
+
+def test_cross_account_trust_draws_no_edge_from_local_principals():
+    """A role trusting ANOTHER account is not assumable by this account's users."""
+    role = role_trusting("vendor", {"AWS": f"{CROSS}root"})
+    local = assumer("eng", can_assume_role=role["_id"])
+    g = graph_from_records([role, local, ADMIN])
+    assert rel_conf(g, local["_id"], role["_id"], "CAN_ASSUME") is None
+
+
+def test_service_only_trust_yields_no_assume_edge():
+    role = role_trusting("fn", {"Service": "lambda.amazonaws.com"})
+    dev = assumer("dev", can_assume_role=role["_id"])
+    g = graph_from_records([role, dev, ADMIN])
+    assert rel_conf(g, dev["_id"], role["_id"], "CAN_ASSUME") is None
