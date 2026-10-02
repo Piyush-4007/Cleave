@@ -33,6 +33,8 @@ NODE_LABELS = {
     "ElasticIp", "NatGateway",
     # organization membership + SCPs (Phase 7 guardrails)
     "Organization",
+    # CI-identity edges (Phase 9): GitHub repo exposure for GitHub Actions OIDC roles
+    "GitHubRepo",
 }
 EDGE_TYPES = {
     # structural (Phase 2)

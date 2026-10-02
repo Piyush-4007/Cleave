@@ -264,6 +264,9 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
     local_accounts = {_principal_account(uid) for uid, d in g.nodes(data=True)
                       if d.get("label") in PRINCIPAL_LABELS}
     local_accounts.discard(None)
+    # GitHub repo exposure records (Phase 9 enrichment), keyed by OWNER/REPO
+    gh_repo_recs = {(d.get("record") or {}).get("Repo"): (d.get("record") or {})
+                    for _u, d in g.nodes(data=True) if d.get("label") == "GitHubRepo"}
 
     if _internet_is_live(g):
         sources.append(Source("internet", EXTERNAL,
@@ -311,9 +314,12 @@ def find_sources(g: nx.DiGraph) -> list[Source]:
             # refinement needs the GitHub collector (not assessed by the AWS scan alone).
             gh_repos = github_actions_repos(rec) if label == "IamRole" else []
             if gh_repos:
+                from ..collectors.github import exposure_note
+                def _label(r):
+                    return r + exposure_note(gh_repo_recs.get(r))
                 where = ("ANY GitHub repository (no sub restriction — any workflow on GitHub "
                          "can assume it)" if "*" in gh_repos
-                         else "GitHub Actions in " + ", ".join(gh_repos))
+                         else "GitHub Actions in " + ", ".join(_label(r) for r in gh_repos))
                 sources.append(Source(
                     uid, ASSUMED_COMPROMISE,
                     f"role assumable by {where} — a workflow run acts as this role; exposure "

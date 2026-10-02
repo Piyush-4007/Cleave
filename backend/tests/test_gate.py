@@ -228,3 +228,32 @@ def test_unrestricted_github_role_names_the_misconfig():
     g = graph_from_records([gh_role("wild", None), ADMIN_P])
     src = {s.uid: s for s in find_sources(g)}[f"{A}role/wild"]
     assert "ANY GitHub repository" in src.reason
+
+
+# ---- stage 4b: GitHub repo collector (fake client) + exposure refinement ----------------
+
+def test_github_collector_reads_visibility_and_protection():
+    from cleave.collectors.github import collect_github_repos
+    calls = {
+        f"{__import__('cleave.collectors.github', fromlist=['API']).API}/repos/octo/infra":
+            (200, {"private": False, "default_branch": "main", "archived": False}),
+    }
+
+    def fake(url, token):
+        if url.endswith("/branches/main/protection"):
+            return 200, {"required_pull_request_reviews": {"required_approving_review_count": 0}}
+        return calls.get(url, (404, None))
+
+    recs = collect_github_repos(["octo/infra", "*"], token="x", fetch=fake)
+    assert len(recs) == 1 and recs[0]["Visibility"] == "public"
+    assert recs[0]["RequiredReviews"] == 0 and recs[0]["Repo"] == "octo/infra"
+
+
+def test_public_unreviewed_repo_sharpens_the_source_note():
+    repo_rec = {"_type": "GitHubRepo", "_id": "github:octo/infra", "Repo": "octo/infra",
+                "Visibility": "public", "RequiredReviews": 0, "DefaultBranch": "main"}
+    g = graph_from_records([gh_role("deploy", "repo:octo/infra:ref:refs/heads/main"),
+                            ADMIN_P, repo_rec])
+    src = {s.uid: s for s in find_sources(g)}[f"{A}role/deploy"]
+    assert "HIGH exposure" in src.reason and "no required reviews" in src.reason
+    assert len(find_paths(g)) == 1
