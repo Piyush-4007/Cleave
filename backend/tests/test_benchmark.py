@@ -53,3 +53,15 @@ def test_metrics_headline_numbers():
     assert m["triage_reduction"] > 5                          # many findings -> few paths
     assert m["total_findings"] > m["planted_paths"]
     assert 0 < m["best_single_fix_cut"] <= 1.0
+
+
+# ---- gate corpus -----------------------------------------------------------------------
+
+def test_gate_corpus_detection_and_false_positive_rates():
+    from cleave.benchmark.corpus import evaluate_gate, corpus
+    c = corpus()
+    assert sum(1 for _l, b, _p in c if b) == 15 and sum(1 for _l, b, _p in c if not b) == 15
+    r = evaluate_gate()
+    assert r["detection_rate"] == 1.0           # every path-introducing PR is blocked
+    assert r["false_positive_rate"] == 0.0      # no benign-but-similar PR is blocked
+    assert r["false_negatives"] == 0 and r["false_positives"] == 0
