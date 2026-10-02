@@ -73,3 +73,24 @@ def test_benchmark_runner_produces_tables():
     assert len(res["metrics"]) >= 3
     assert all(m["recall"] == 1.0 and m["precision"] == 1.0 for m in res["metrics"])
     assert res["gate"]["detection_rate"] == 1.0 and res["gate"]["false_positive_rate"] == 0.0
+
+
+# ---- terraform emitter -----------------------------------------------------------------
+
+def test_to_terraform_emits_deployable_blocks():
+    from cleave.benchmark.generate import generate, to_terraform
+    scn = generate(seed=1, n_benign=20, n_paths=5)
+    files = to_terraform(scn)
+    assert "providers.tf" in files and "main.tf" in files
+    tf = files["main.tf"]
+    # the planted-path resource kinds are present
+    for block in ('resource "aws_iam_user"', 'resource "aws_iam_role"',
+                  'resource "aws_iam_policy"', 'resource "aws_s3_bucket"',
+                  'resource "aws_iam_access_key"', 'resource "aws_s3_object"'):
+        assert block in tf, block
+    # a public bucket allows its policy; the cred object interpolates the real key id
+    assert "block_public_policy     = false" in tf
+    assert "${aws_iam_access_key.cred_0.id}" in tf
+    # AWS-managed admin is referenced by ARN, never recreated
+    assert 'resource "aws_iam_policy" "AdministratorAccess"' not in tf
+    assert "arn:aws:iam::aws:policy/AdministratorAccess" in tf

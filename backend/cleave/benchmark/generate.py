@@ -195,6 +195,104 @@ def generate(seed: int = 1, n_benign: int = 160, n_paths: int = 5) -> dict:
             "planted_resources": planted}
 
 
+def _tfid(uid: str) -> str:
+    base = uid.split("/")[-1].split(":")[-1]
+    out = "".join(c if (c.isalnum() or c == "_") else "_" for c in base).strip("_")
+    return ("r_" + out) if (not out or out[0].isdigit()) else out
+
+
+def _heredoc(doc: dict, indent: str = "  ") -> str:
+    body = json.dumps(doc, indent=2)
+    body = "\n".join(indent + ln for ln in body.splitlines())
+    return f"<<-POLICY\n{body}\n{indent}POLICY"
+
+
+def to_terraform(scn: dict) -> dict[str, str]:
+    """Emit the synthetic account as deployable Terraform, so the other tools can scan a live
+    account (Phase 10 step 2). Free primitives only. Public buckets get the ownership/PAB
+    settings a public policy needs; a planted credential becomes a real (throwaway) access key
+    whose id is written into the bucket object, so Cleave's live credscan reconstructs that
+    path. Tear the account down the same session (handbook Rule 2).
+    """
+    recs = {r["_id"]: r for r in scn["records"]}
+    blocks: list[str] = []
+
+    def policy_arn_ref(arn: str) -> str:
+        # an AWS-managed policy is referenced by its ARN; a generated customer policy by its resource
+        if arn.startswith("arn:aws:iam::aws:policy/"):
+            return f'"{arn}"'
+        r = recs.get(arn)
+        return f"aws_iam_policy.{_tfid(arn)}.arn" if r else f'"{arn}"'
+
+    for r in scn["records"]:
+        t, rid = r["_type"], _tfid(r["_id"])
+        if t == "IamPolicy" and r.get("ManagedBy") != "AWS" and r.get("Document"):
+            blocks.append(f'resource "aws_iam_policy" "{rid}" {{\n  name   = "{r["PolicyName"]}"\n'
+                          f'  policy = {_heredoc(r["Document"])}\n}}')
+        elif t in ("IamUser", "IamRole", "IamGroup"):
+            kind = {"IamUser": "user", "IamRole": "role", "IamGroup": "group"}[t]
+            name = r.get("UserName") or r.get("RoleName") or r.get("GroupName")
+            head = [f'resource "aws_iam_{kind}" "{rid}" {{', f'  name = "{name}"']
+            if t == "IamRole" and r.get("TrustPolicy"):
+                head.append(f'  assume_role_policy = {_heredoc(r["TrustPolicy"], "  ")}')
+            head.append("}")
+            blocks.append("\n".join(head))
+            for pname, doc in (r.get("InlinePolicies") or {}).items():
+                if doc:
+                    blocks.append(
+                        f'resource "aws_iam_{kind}_policy" "{rid}_{_tfid(pname)}" {{\n'
+                        f'  name   = "{pname}"\n  {kind}   = aws_iam_{kind}.{rid}.name\n'
+                        f'  policy = {_heredoc(doc)}\n}}')
+            for parn in r.get("AttachedPolicies") or []:
+                blocks.append(
+                    f'resource "aws_iam_{kind}_policy_attachment" "{rid}_{_tfid(parn)}" {{\n'
+                    f'  {kind}       = aws_iam_{kind}.{rid}.name\n'
+                    f'  policy_arn = {policy_arn_ref(parn)}\n}}')
+        elif t == "S3Bucket":
+            name = r["Name"]
+            blocks.append(f'resource "aws_s3_bucket" "{rid}" {{\n  bucket = "{name}"\n'
+                          f'  force_destroy = true\n}}')
+            public = r.get("Policy") and not r.get("PublicAccessBlock")
+            pab = r.get("PublicAccessBlock") or {}
+            block = "true" if (pab.get("BlockPublicPolicy") is not False and not public) else "false"
+            blocks.append(
+                f'resource "aws_s3_bucket_public_access_block" "{rid}_pab" {{\n'
+                f'  bucket                  = aws_s3_bucket.{rid}.id\n'
+                f'  block_public_acls       = {str(not public).lower()}\n'
+                f'  ignore_public_acls      = {str(not public).lower()}\n'
+                f'  block_public_policy     = {block}\n'
+                f'  restrict_public_buckets = {str(not public).lower()}\n}}')
+            if r.get("Policy"):
+                blocks.append(
+                    f'resource "aws_s3_bucket_policy" "{rid}_pol" {{\n'
+                    f'  bucket = aws_s3_bucket.{rid}.id\n  policy = {_heredoc(r["Policy"])}\n'
+                    f'  depends_on = [aws_s3_bucket_public_access_block.{rid}_pab]\n}}')
+
+    # planted credentials: a real (throwaway) access key for the owner, its id written into
+    # the bucket object, so a live credscan maps the key -> owner and reconstructs the path.
+    for i, f in enumerate(scn.get("cred_findings") or []):
+        owner = recs.get(f["owner_arn"])
+        bucket = recs.get(f["bucket_id"])
+        if not (owner and bucket):
+            continue
+        ok, bk = _tfid(owner["_id"]), _tfid(bucket["_id"])
+        blocks.append(f'resource "aws_iam_access_key" "cred_{i}" {{\n'
+                      f'  user = aws_iam_user.{ok}.name\n}}')
+        blocks.append(
+            f'resource "aws_s3_object" "cred_{i}" {{\n  bucket  = aws_s3_bucket.{bk}.id\n'
+            f'  key     = "{f.get("object_key", "secret.env")}"\n'
+            f'  content = "aws_access_key_id=${{aws_iam_access_key.cred_{i}.id}}\\n'
+            f'aws_secret_access_key=${{aws_iam_access_key.cred_{i}.secret}}\\n"\n}}')
+
+    providers = ('terraform {\n  required_providers {\n'
+                 '    aws = { source = "hashicorp/aws", version = "~> 5.0" }\n  }\n}\n\n'
+                 'provider "aws" {\n  region = "us-east-1"\n}\n')
+    return {"providers.tf": providers,
+            "main.tf": "# Generated by cleave.benchmark — synthetic benchmark account.\n"
+                       "# Free primitives only; tear down the same session.\n\n"
+                       + "\n\n".join(blocks) + "\n"}
+
+
 def write(out_dir, seed: int = 1, n_benign: int = 160, n_paths: int = 5) -> dict:
     import pathlib
     out = pathlib.Path(out_dir)
@@ -205,4 +303,8 @@ def write(out_dir, seed: int = 1, n_benign: int = 160, n_paths: int = 5) -> dict
     (out / "manifest.json").write_text(json.dumps(
         {"account": scn["account"], "seed": seed, "resources": len(scn["records"]),
          "planted_paths": scn["manifest"]}, indent=2), encoding="utf-8")
+    tf = out / "terraform"
+    tf.mkdir(parents=True, exist_ok=True)
+    for fname, content in to_terraform(scn).items():
+        (tf / fname).write_text(content, encoding="utf-8")
     return scn
