@@ -1,6 +1,6 @@
 [package]
 name = "cleave-desktop"
-version = "0.6.0"
+version = "0.7.0"
 description = "Cleave — reachability-ranked attack path analysis for AWS"
 edition = "2021"
 

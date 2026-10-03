@@ -1,7 +1,7 @@
 {
   "name": "cleave-desktop",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "scripts": {
     "backend": "\"./.venv/Scripts/python\" build_backend.py",
     "dev": "tauri dev",
