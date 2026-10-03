@@ -150,14 +150,19 @@ def test_admin_holder_is_not_a_source():
 
 
 def test_escalation_primitive_holder_is_a_source():
-    """The distinction that makes Phase 4 work: a policy granting
-    iam:SetDefaultPolicyVersion is admin-EQUIVALENT (it gets a GRANTS_ADMIN edge) but its
-    holder is not yet admin -- he has to escalate, and that escalation is the finding."""
+    """The distinction that makes Phase 4 work: a principal who can
+    iam:SetDefaultPolicyVersion a customer-managed policy attached to him can rewrite it to
+    admin (a GRANTS_ADMIN edge), but is not yet admin -- he has to escalate, and that
+    escalation is the finding. (The precision that an inline-only holder with nothing to
+    version is NOT a path lives in test_evaluated.)"""
     records = [
         {"_type": "IamUser", "_id": "arn:aws:iam::1:user/raynor", "UserName": "raynor",
-         "AttachedPolicies": [], "Groups": [],
+         "AttachedPolicies": ["arn:aws:iam::1:policy/raynor-cm"], "Groups": [],
          "InlinePolicies": {"p": {"Statement": [
              {"Effect": "Allow", "Action": "iam:SetDefaultPolicyVersion", "Resource": "*"}]}}},
+        {"_type": "IamPolicy", "_id": "arn:aws:iam::1:policy/raynor-cm",
+         "PolicyName": "raynor-cm", "Document": {"Statement": [
+             {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}},
     ]
     g = graph_from_records(records)
     assert not holds_full_admin(g, "arn:aws:iam::1:user/raynor")

@@ -13,7 +13,8 @@ from ..iam.evaluator import is_allowed, grants_admin, is_full_admin, Decision
 from ..iam import conditions as cond
 from ..iam.evaluator import _account_of
 from ..iam.guardrails import ORG_ID, boundary_below_full_admin, guardrails, scp_levels
-from ..iam.catalogue import ADMIN_EQUIVALENT_ACTIONS, LAUNCH_SERVICES, TAKEOVER_ACTIONS
+from ..iam.catalogue import (ADMIN_EQUIVALENT_ACTIONS, POLICY_VERSION_ACTIONS,
+                             LAUNCH_SERVICES, TAKEOVER_ACTIONS)
 from ..reachability.engine import compute_reach
 from ..credscan import credential_edges
 
@@ -22,6 +23,45 @@ def _edge(frm, to, rel, reason, evidence, confidence, by="iam.evaluator.v2", **e
     return {"frm": frm, "to": to, "rel": rel, "props": {
         "reason": reason, "evidence": evidence,
         "confidence": confidence, "discovered_by": by, **extra}}
+
+
+def _customer_managed(arn: str) -> bool:
+    """A customer-managed policy ARN — versionable by its own account. AWS-managed
+    policies (`arn:aws:iam::aws:policy/...`) are immutable, so they are excluded."""
+    return ":policy/" in arn and ":iam::aws:policy/" not in arn
+
+
+def _doc_holders(records: list[dict], groups_by_name: dict) -> dict:
+    """policy-document uid -> [principal records that hold it], for inline and attached
+    managed docs (directly or inherited from a group). Used to ask, per granting document,
+    whether any holder has an attached customer-managed policy to version."""
+    holders: dict[str, list[dict]] = {}
+    for pr in (r for r in records if r["_type"] in ("IamUser", "IamRole")):
+        seen: list[tuple[str, dict]] = []
+        for pname in (pr.get("InlinePolicies") or {}):
+            seen.append((f"{pr['_id']}#inline/{pname}", pr))
+        carriers = [pr] + [groups_by_name[g] for g in pr.get("Groups", [])
+                           if g in groups_by_name]
+        for h in carriers:
+            if h is not pr:
+                for pname in (h.get("InlinePolicies") or {}):
+                    seen.append((f"{h['_id']}#inline/{pname}", pr))
+            for arn in (h.get("AttachedPolicies") or []):
+                seen.append((arn, pr))
+        for uid, p in seen:
+            holders.setdefault(uid, []).append(p)
+    return holders
+
+
+def _attached_customer_managed(pr: dict, groups_by_name: dict, policy_docs: dict) -> list[str]:
+    """Customer-managed policy ARNs attached to a principal (directly or via a group) that
+    have a readable document — i.e. the policies this principal could version into admin."""
+    arns = list(pr.get("AttachedPolicies") or [])
+    for g in pr.get("Groups", []):
+        grp = groups_by_name.get(g)
+        if grp:
+            arns += grp.get("AttachedPolicies") or []
+    return [a for a in arns if _customer_managed(a) and policy_docs.get(a) is not None]
 
 
 def policy_documents(records: list[dict]):
@@ -355,6 +395,36 @@ def compute_evaluated_edges(records: list[dict], cred_findings: list[dict] = ())
                 bucket, reason = "Possible", f"{reason}; an SCP may restrict it"
         edges.append(_edge(uid, "admin", "GRANTS_ADMIN", reason, evidence,
                            bucket, full_admin=is_full_admin(doc)))
+
+    # ---- CreatePolicyVersion / SetDefaultPolicyVersion -> admin (holder-conditional) ----
+    # A document granting one of these is admin-equivalent only for a HOLDER who has an
+    # attached customer-managed policy (covered by the grant) to rewrite into admin -- an
+    # inline-only holder cannot (inline policies have no versions), and AWS-managed policies
+    # are immutable. So, unlike the sufficient-alone primitives above, draw the doc->admin
+    # edge only when some holder of the document has such a policy. These are never full
+    # admin (full_admin=False): the holder still has to escalate. Phase 10: the live PMapper
+    # comparison surfaced the over-approximation (an inline-only holder was wrongly flagged).
+    holders_of = _doc_holders(records, groups_by_name)
+    for uid, doc, evidence in policy_documents(records):
+        hit = None
+        for act in sorted(POLICY_VERSION_ACTIONS):
+            for pr in holders_of.get(uid, []):
+                for parn in _attached_customer_managed(pr, groups_by_name, policy_docs):
+                    r = is_allowed([doc], act, parn, scps=account_scps)
+                    if r.decision is Decision.ALLOW:
+                        hit = (act, parn, r.bucket)
+                        break
+                if hit:
+                    break
+            if hit:
+                break
+        if hit:
+            act, parn, bucket = hit
+            edges.append(_edge(
+                uid, "admin", "GRANTS_ADMIN",
+                f"grants {act} over attached customer-managed policy {parn}; its holder can "
+                "set a new default version granting administrator", evidence,
+                bucket, full_admin=False))
 
     # ---- effective policy documents in force for a principal ----
     def eff_docs(pr: dict) -> list[dict]:

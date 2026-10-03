@@ -23,3 +23,4 @@ desktop/src-tauri/gen/
 # Phase 7 measurement: local scans + results carry account ids/ARNs
 eval/corpus/
 eval/results/
+eval/live-run/

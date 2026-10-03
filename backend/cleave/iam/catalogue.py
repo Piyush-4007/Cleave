@@ -2,11 +2,21 @@
 *reach* admin. Sourced from docs/aws-common-risks-reference.md. Used by grants_admin()
 and by Phase 4 sink detection. Patterns are matched case-insensitively with * wildcards.
 
-The catalogue is split in two, and the split is load-bearing.
+The catalogue is split in three, and the split is load-bearing.
 
 `ADMIN_EQUIVALENT_ACTIONS` are **sufficient on their own**: holding one, on an ordinary
 account, is a complete privilege escalation with no second permission required. These are
 what `grants_admin()` fires on, and therefore what puts a `GRANTS_ADMIN` edge in the graph.
+
+`POLICY_VERSION_ACTIONS` (iam:CreatePolicyVersion / iam:SetDefaultPolicyVersion) escalate
+the holder **only if they hold an attached customer-managed policy to rewrite into admin** —
+an inline-only holder cannot (inline policies have no versions), and AWS-managed policies
+are immutable. So they are *not* sufficient-alone and are deliberately NOT in
+`ADMIN_EQUIVALENT_ACTIONS`: they draw a **holder-conditional** GRANTS_ADMIN edge in
+`graph/evaluated.py` (on the granting document, but only when some holder has such an
+attached policy to version), not the unconditional per-document one. (Surfaced by the
+Phase-10 PMapper comparison: PMapper correctly did not flag an inline-only holder; treating
+these as sufficient-alone over-reported, the "plausible-but-fake path" trap on the IAM side.)
 
 `ENABLING_PRIMITIVES` are **only dangerous in combination**. iam:PassRole permits handing
 a role to a service; on its own it obtains nothing, because you still need a compute action
@@ -21,9 +31,7 @@ keeping them out of `grants_admin`: they are evidence, not a conclusion.
 # dangerous action" test lives in grants_admin(), and putting wildcards here would make
 # every action match.
 ADMIN_EQUIVALENT_ACTIONS = {
-    # policy mutation — write yourself a new permission set
-    "iam:CreatePolicyVersion",
-    "iam:SetDefaultPolicyVersion",       # Phase 0 scenario 1
+    # policy mutation — write yourself a new permission set, unconditionally
     "iam:AttachUserPolicy",
     "iam:AttachRolePolicy",
     "iam:AttachGroupPolicy",
@@ -33,6 +41,17 @@ ADMIN_EQUIVALENT_ACTIONS = {
     # NOTE (30 Sep): lambda:UpdateFunctionCode moved to ENABLING_PRIMITIVES -- it yields
     # the function's own role, which the CAN_WRITE -> EXECUTES_AS edges model exactly.
     # NOTE (Phase 7): the identity-takeover actions moved to TAKEOVER_ACTIONS below.
+    # NOTE (Phase 10): iam:CreatePolicyVersion / iam:SetDefaultPolicyVersion moved to
+    # POLICY_VERSION_ACTIONS below -- they are principal-conditional, not sufficient-alone.
+}
+
+# Policy-version rewrite. Admin-equivalent ONLY for a principal who has an attached
+# CUSTOMER-MANAGED policy (covered by the grant's resource) to version into admin. An
+# inline-only holder cannot (inline policies have no versions); AWS-managed policies are
+# immutable. graph/evaluated.py draws the conditional GRANTS_ADMIN edge per-principal.
+POLICY_VERSION_ACTIONS = {
+    "iam:CreatePolicyVersion",
+    "iam:SetDefaultPolicyVersion",       # Phase 0 scenario 1 (rollback to a hidden version)
 }
 
 # Identity takeover (Phase 7). Each makes the attacker a SPECIFIC principal -- admin only
@@ -91,4 +110,6 @@ ENABLING_PRIMITIVES = {
 }
 
 assert not (ADMIN_EQUIVALENT_ACTIONS & ENABLING_PRIMITIVES), "an action is one or the other"
-assert not (set(TAKEOVER_ACTIONS) & (ADMIN_EQUIVALENT_ACTIONS | ENABLING_PRIMITIVES))
+assert not (POLICY_VERSION_ACTIONS & (ADMIN_EQUIVALENT_ACTIONS | ENABLING_PRIMITIVES))
+assert not (set(TAKEOVER_ACTIONS) &
+            (ADMIN_EQUIVALENT_ACTIONS | ENABLING_PRIMITIVES | POLICY_VERSION_ACTIONS))

@@ -17,7 +17,8 @@ anything else returns guidance. See model.Fix for the confidence contract.
 """
 from __future__ import annotations
 import json
-from ..iam.catalogue import ADMIN_EQUIVALENT_ACTIONS, TAKEOVER_ACTIONS
+from ..iam.catalogue import (ADMIN_EQUIVALENT_ACTIONS, POLICY_VERSION_ACTIONS,
+                             TAKEOVER_ACTIONS)
 from ..iam.evaluator import _glob
 from .model import Fix
 
@@ -207,7 +208,8 @@ def _fix_grants_admin(edge: dict, g) -> Fix:
             "identity's real duties first.",
             target=puid, title=f"Detach {_short(puid)} (AWS-managed admin)")
     # A customer/inline policy that reaches admin via a primitive: remove the primitive.
-    new_doc, removed = _remove_actions(doc, sorted(ADMIN_EQUIVALENT_ACTIONS))
+    new_doc, removed = _remove_actions(
+        doc, sorted(ADMIN_EQUIVALENT_ACTIONS | POLICY_VERSION_ACTIONS))
     if not removed:
         return _guidance(edge, f"{_short(puid)} reaches admin; scope its wildcard grant.",
                          "Review the wildcard permission before narrowing it.",

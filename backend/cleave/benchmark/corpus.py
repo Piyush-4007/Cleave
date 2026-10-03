@@ -65,10 +65,20 @@ def _bad_prs():
     # 1-4: a user gains an escalation primitive (several primitives)
     for i, prim in enumerate(["iam:CreatePolicyVersion", "iam:PutUserPolicy",
                               "iam:AttachUserPolicy", "iam:SetDefaultPolicyVersion"]):
-        prs.append((f"grant {prim}", _plan(
+        changes = [
             _ch("aws_iam_user", f"svc{i}", {"name": f"svc{i}"}),
             _ch("aws_iam_user_policy", f"svc{i}p", {"name": "p", "user": f"svc{i}",
-                "policy": _doc(_allow([prim], "*"))}))))
+                "policy": _doc(_allow([prim], "*"))})]
+        if prim in ("iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion"):
+            # these escalate the holder only if they have an attached customer-managed policy
+            # to rewrite into admin -> give svc{i} one, so this stays a genuine path PR.
+            parn = f"{A}policy/svc{i}-cm"
+            changes += [
+                _ch("aws_iam_policy", f"svc{i}cm", {"name": f"svc{i}-cm", "arn": parn,
+                    "policy": _doc(_allow(["s3:GetObject"], "*"))}),
+                _ch("aws_iam_user_policy_attachment", f"svc{i}att",
+                    {"user": f"svc{i}", "policy_arn": parn})]
+        prs.append((f"grant {prim}", _plan(*changes)))
     # 5-6: PassRole + a launch action into the admin role that trusts lambda
     for i in range(2):
         prs.append((f"passrole+launch {i}", _plan(

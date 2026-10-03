@@ -128,7 +128,7 @@ def test_gate_endpoint_flags_new_path(client):
         {"address": "aws_iam_user_policy.p", "mode": "managed", "type": "aws_iam_user_policy",
          "name": "p", "change": {"actions": ["create"], "after": {"name": "danger", "user": "x",
             "policy": json.dumps({"Statement": [{"Effect": "Allow",
-                "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}}}]}
+                "Action": "iam:AttachUserPolicy", "Resource": "*"}]})}}}]}
     r = client.post("/gate", json=p)
     assert r.status_code == 200
     body = r.json()

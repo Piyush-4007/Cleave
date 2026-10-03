@@ -1,6 +1,6 @@
 {
-  "name": "iam:SetDefaultPolicyVersion is admin-EQUIVALENT but not literal *:* (Phase 0 scenario 1)",
-  "note": "This distinction is what keeps raynor a valid path SOURCE while still drawing his GRANTS_ADMIN edge.",
+  "name": "iam:AttachUserPolicy is admin-EQUIVALENT but not literal *:* (sufficient-alone primitive)",
+  "note": "This distinction keeps a primitive holder a valid path SOURCE while still drawing a GRANTS_ADMIN edge. (iam:SetDefaultPolicyVersion / iam:CreatePolicyVersion moved to a holder-conditional edge in Phase 10 -- they are not sufficient-alone, so grants_admin() no longer fires on them here; they are exercised at the graph level in test_evaluated.)",
   "policies": [
     {
       "Version": "2012-10-17",
@@ -10,7 +10,7 @@
           "Action": [
             "iam:Get*",
             "iam:List*",
-            "iam:SetDefaultPolicyVersion"
+            "iam:AttachUserPolicy"
           ],
           "Resource": "*"
         }

@@ -103,13 +103,14 @@ def live_account():
 
 
 def test_gate_blocks_a_pr_that_introduces_a_path():
-    # PR gives the existing live user an escalation primitive (iam:CreatePolicyVersion on *)
-    # via a new inline policy -> a new route to admin that did not exist before.
-    # (Attaching *full* AdministratorAccess would make the user a baseline admin, which Cleave
-    # correctly does NOT count as an escalation path — the primitive is the real finding.)
+    # PR gives the existing live user a sufficient-alone escalation primitive
+    # (iam:AttachUserPolicy on *) via a new inline policy -> a new route to admin that did
+    # not exist before. (Attaching *full* AdministratorAccess would make the user a baseline
+    # admin, which Cleave correctly does NOT count as an escalation path — the primitive is
+    # the real finding. iam:CreatePolicyVersion is holder-conditional and gets its own test.)
     p = plan(change("aws_iam_user_policy", "grant", {
         "name": "danger", "user": "dev", "policy": json.dumps({"Statement": [
-            {"Effect": "Allow", "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}))
+            {"Effect": "Allow", "Action": "iam:AttachUserPolicy", "Resource": "*"}]})}))
     r = gate(live_account(), p, ACCT)
     assert r["blocked"] and r["introduced"] == 1
     assert r["paths_before"] == 0 and r["paths_after"] == 1
@@ -138,7 +139,7 @@ def test_gate_credits_only_new_paths_not_preexisting():
         change("aws_iam_user", "ops", {"name": "ops"}),
         change("aws_iam_user_policy", "ops_inline", {"name": "p", "user": "ops",
             "policy": json.dumps({"Statement": [{"Effect": "Allow",
-                "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}),
+                "Action": "iam:AttachUserPolicy", "Resource": "*"}]})}),
     )
     r = gate(live, p, ACCT)
     assert r["introduced"] == 1 and r["paths_before"] == 1 and r["paths_after"] == 2
@@ -151,7 +152,7 @@ def test_cli_exits_nonzero_when_blocked(tmp_path):
     p = plan(change("aws_iam_user", "dev", {"name": "dev"}),
              change("aws_iam_user_policy", "d", {"name": "danger", "user": "dev",
                 "policy": json.dumps({"Statement": [{"Effect": "Allow",
-                    "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}))
+                    "Action": "iam:AttachUserPolicy", "Resource": "*"}]})}))
     pf = tmp_path / "plan.json"
     pf.write_text(json.dumps(p), encoding="utf-8")
     assert main(["--plan", str(pf), "--account", ACCT]) == 1          # blocked
@@ -169,7 +170,7 @@ def test_comment_renders_path_and_fix():
     p = plan(change("aws_iam_user", "dev", {"name": "dev"}),
              change("aws_iam_user_policy", "d", {"name": "danger", "user": "dev",
                 "policy": json.dumps({"Statement": [{"Effect": "Allow",
-                    "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}))
+                    "Action": "iam:AttachUserPolicy", "Resource": "*"}]})}))
     r = gate([], p, ACCT)
     md = render_comment(r, age="scanned 10m ago")
     assert "introduces 1 new attack path" in md and "```" in md
@@ -281,3 +282,23 @@ def test_github_no_admin_scope_is_unknown_reviews():
         return 404, None
     rec = collect_github_repos(["octo/priv"], token="x", fetch=fake)[0]
     assert rec["RequiredReviews"] is None       # unknown, not guessed
+
+
+def test_gate_createpolicyversion_needs_a_managed_policy_to_version():
+    # iam:CreatePolicyVersion escalates the holder only if they have an attached customer-
+    # managed policy to rewrite into admin. A PR granting it to a holder WITH such a policy
+    # opens a path (blocked); to a holder WITHOUT one it does not (Phase 10 / PMapper).
+    with_cm = [
+        {"_type": "IamUser", "_id": f"{A}user/dev", "UserName": "dev", "AccessKeys": [],
+         "AttachedPolicies": [f"{A}policy/dev-cm"], "Groups": [], "InlinePolicies": {}},
+        {"_type": "IamPolicy", "_id": f"{A}policy/dev-cm", "PolicyName": "dev-cm",
+         "ManagedBy": "Customer", "Document": {"Statement": [
+             {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}},
+        ADMIN_MANAGED,
+    ]
+    without_cm = live_account()   # dev has only an inline read policy, nothing to version
+    cpv = plan(change("aws_iam_user_policy", "grant", {
+        "name": "danger", "user": "dev", "policy": json.dumps({"Statement": [
+            {"Effect": "Allow", "Action": "iam:CreatePolicyVersion", "Resource": "*"}]})}))
+    assert gate(with_cm, cpv, ACCT)["blocked"]              # a policy to version -> new path
+    assert not gate(without_cm, cpv, ACCT)["blocked"]       # nothing to version -> no path

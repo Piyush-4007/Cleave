@@ -110,8 +110,21 @@ class _Gen:
         prim = self.r.choice(PRIMITIVES)
         u = self._id("deploy")
         uid = f"{A}user/{u}"
+        attached: list[str] = []
+        if prim == "iam:CreatePolicyVersion":
+            # CreatePolicyVersion/SetDefaultPolicyVersion escalate the holder only if they
+            # have an attached customer-managed policy to rewrite into admin (an inline-only
+            # holder cannot; AWS-managed is immutable). Give deploy one so the planted path
+            # is a genuine escalation under the precise model -- the grant on "*" covers it.
+            pol = self._id("deploy-scoped")
+            parn = f"{A}policy/{pol}"
+            self.records.append({
+                "_type": "IamPolicy", "_id": parn, "PolicyName": pol, "ManagedBy": "Customer",
+                "Document": {"Statement": [
+                    {"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": "*"}]}})
+            attached = [parn]
         self.records.append({
-            "_type": "IamUser", "_id": uid, "UserName": u, "AttachedPolicies": [],
+            "_type": "IamUser", "_id": uid, "UserName": u, "AttachedPolicies": attached,
             "Groups": [], "AccessKeys": [], "InlinePolicies": {"p": {"Statement": [
                 {"Effect": "Allow", "Action": [prim, "s3:GetObject"], "Resource": "*"}]}}})
         self._record_path("privesc_primitive", uid, ["HAS_ATTACHED", "GRANTS_ADMIN"])
@@ -202,6 +215,9 @@ def _tfid(uid: str) -> str:
 
 
 def _heredoc(doc: dict, indent: str = "  ") -> str:
+    # AWS requires a policy Version; the engine does not, so inject it only at emit time.
+    if "Version" not in doc:
+        doc = {"Version": "2012-10-17", **doc}
     body = json.dumps(doc, indent=2)
     body = "\n".join(indent + ln for ln in body.splitlines())
     return f"<<-POLICY\n{body}\n{indent}POLICY"

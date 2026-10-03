@@ -42,6 +42,45 @@ def test_launchas_needs_a_role_the_service_can_carry():
     assert "CAN_PASS_ROLE" in rels and "CAN_LAUNCH_AS" not in rels
 
 
+def test_createpolicyversion_is_admin_only_with_a_policy_to_version():
+    """Phase 10 (PMapper comparison): iam:CreatePolicyVersion / SetDefaultPolicyVersion
+    escalate the holder only if they have an attached CUSTOMER-MANAGED policy to rewrite
+    into admin. An inline-only holder has nothing to version -> no GRANTS_ADMIN edge; the
+    same grant with a customer-managed policy attached -> a (non-full-admin) GRANTS_ADMIN
+    edge on the granting document."""
+    CPV = {"p": {"Statement": [
+        {"Effect": "Allow", "Action": "iam:CreatePolicyVersion", "Resource": "*"}]}}
+    inline_only = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::111:user/u", "UserName": "u",
+         "AttachedPolicies": [], "Groups": [], "InlinePolicies": CPV},
+    ]
+    assert not any(e["rel"] == "GRANTS_ADMIN"
+                   for e in compute_evaluated_edges(inline_only))
+
+    CM = "arn:aws:iam::111:policy/cm"
+    with_cm = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::111:user/u", "UserName": "u",
+         "AttachedPolicies": [CM], "Groups": [], "InlinePolicies": CPV},
+        {"_type": "IamPolicy", "_id": CM, "PolicyName": "cm", "ManagedBy": "Customer",
+         "Document": {"Statement": [
+             {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}},
+    ]
+    admin = [e for e in compute_evaluated_edges(with_cm)
+             if e["rel"] == "GRANTS_ADMIN" and e["to"] == "admin"]
+    assert admin and all(not e["props"].get("full_admin") for e in admin)
+
+    # an AWS-managed policy is immutable: it does not count as something to version
+    aws_mgd = [
+        {"_type": "IamUser", "_id": "arn:aws:iam::111:user/u", "UserName": "u",
+         "AttachedPolicies": ["arn:aws:iam::aws:policy/ReadOnlyAccess"], "Groups": [],
+         "InlinePolicies": CPV},
+        {"_type": "IamPolicy", "_id": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+         "PolicyName": "ReadOnlyAccess", "ManagedBy": "AWS", "Document": {"Statement": [
+             {"Effect": "Allow", "Action": "s3:Get*", "Resource": "*"}]}},
+    ]
+    assert not any(e["rel"] == "GRANTS_ADMIN" for e in compute_evaluated_edges(aws_mgd))
+
+
 def test_readonly_user_gets_no_escalation():
     records = [
         {"_type": "IamUser", "_id": "arn:aws:iam::111:user/ro", "UserName": "ro",
