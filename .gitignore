@@ -24,3 +24,5 @@ desktop/src-tauri/gen/
 eval/corpus/
 eval/results/
 eval/live-run/
+
+frontend/.claude/

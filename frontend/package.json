@@ -14,6 +14,8 @@
     "@fontsource/geist-sans": "^5.1.0",
     "@fontsource/ibm-plex-mono": "^5.1.0",
     "@phosphor-icons/react": "^2.1.7",
+    "cytoscape": "^3.34.3",
+    "cytoscape-dagre": "^4.0.1",
     "motion": "^11.11.17",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/cytoscape-dagre": "^2.3.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
