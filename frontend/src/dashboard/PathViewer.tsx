@@ -31,7 +31,7 @@ export function PathViewer() {
   const { data, loading } = useAnalysis();
   const { id } = useParams();
   const nav = useNavigate();
-  const [view, setView] = useState<View>("graph");
+  const [view, setView] = useState<View>("list");
 
   if (loading || !data) return <Loading />;
   const paths = data.paths;

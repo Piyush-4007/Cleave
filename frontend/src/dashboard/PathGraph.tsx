@@ -8,6 +8,7 @@
 import { useEffect, useRef } from "react";
 import cytoscape from "cytoscape";
 import dagre from "cytoscape-dagre";
+import { Plus, Minus, CornersOut } from "@phosphor-icons/react";
 import type { AttackPath, PathNode, CutEdge } from "./api";
 
 cytoscape.use(dagre);
@@ -122,7 +123,7 @@ export function PathGraph({ paths, cutEdges, selectedId, onSelectNode, onSelectP
     if (!box.current) return;
     const cy = cytoscape({
       container: box.current, elements, style: stylesheet(tokens()),
-      minZoom: 0.3, maxZoom: 2.2, wheelSensitivity: 0.2,
+      minZoom: 0.25, maxZoom: 2.6, wheelSensitivity: 0.5,
       autoungrabify: true, boxSelectionEnabled: false,
     });
     cyRef.current = cy;
@@ -177,9 +178,26 @@ export function PathGraph({ paths, cutEdges, selectedId, onSelectNode, onSelectP
     });
   }, [selectedId, paths]);
 
+  const zoomBy = (factor: number) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const level = Math.min(cy.maxZoom(), Math.max(cy.minZoom(), cy.zoom() * factor));
+    cy.animate({ zoom: { level, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } } },
+               { duration: 110 });
+  };
+  const fitAll = () => cyRef.current?.animate(
+    { fit: { eles: cyRef.current.elements(), padding: 34 } }, { duration: 160 });
+
+  const ctrlBtn = "grid h-8 w-8 place-items-center text-[color:var(--muted)] transition-colors hover:bg-[color:var(--panel-2)] hover:text-[color:var(--text)]";
   return (
     <div className="relative h-full min-h-[360px]">
       <div ref={box} className="h-full w-full" />
+      {/* zoom controls */}
+      <div className="absolute right-3 top-3 flex flex-col overflow-hidden rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)]/85 backdrop-blur">
+        <button onClick={() => zoomBy(1.35)} title="Zoom in" className={ctrlBtn}><Plus size={14} /></button>
+        <button onClick={() => zoomBy(1 / 1.35)} title="Zoom out" className={`${ctrlBtn} border-t border-[color:var(--line)]`}><Minus size={14} /></button>
+        <button onClick={fitAll} title="Fit to view" className={`${ctrlBtn} border-t border-[color:var(--line)]`}><CornersOut size={14} /></button>
+      </div>
       {/* legend */}
       <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-[color:var(--line)] bg-[color:var(--panel)]/85 px-3 py-2 text-[10.5px] mono text-[color:var(--muted)] backdrop-blur">
         <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-sm border-2" style={{ borderColor: "var(--accent)" }} />entry</span>
