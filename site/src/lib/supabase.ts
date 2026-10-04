@@ -12,10 +12,11 @@ export const supabase: SupabaseClient | null =
   url && anon
     ? createClient(url, anon, {
         auth: {
-          // PKCE returns a ?code the client exchanges reliably in a SPA, instead of the
-          // implicit #access_token hash that can fail to persist a session on redirect.
+          // PKCE returns a ?code we exchange for a session. We do that exchange MANUALLY
+          // in AuthProvider (detectSessionInUrl: false) so the exchange is deterministic
+          // and its errors are visible — the built-in auto-detect swallows failures.
           flowType: "pkce",
-          detectSessionInUrl: true,
+          detectSessionInUrl: false,
           persistSession: true,
           autoRefreshToken: true,
         },
