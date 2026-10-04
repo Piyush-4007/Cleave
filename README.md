@@ -1,100 +1,106 @@
 # Cleave
 
-Reachability-ranked attack-path analysis for AWS. Cleave connects to an AWS account
-**read-only**, builds a graph of resources and identities, finds routes from public
-entry points to admin, ranks them, and computes the single smallest change (the
-*minimum cut*) that breaks the most routes.
+**Reachability-ranked attack-path analysis for AWS.** Cleave connects to an AWS account
+**read-only**, builds a graph of every resource and identity, finds the routes an attacker
+could actually walk from a public entry point to administrative control, ranks them by
+reachability, and computes the single smallest change — the **minimum cut** — that breaks
+the most routes.
 
-Self-hosted and local-first: **your AWS access never leaves your machine.**
+Local-first and private: **your AWS access never leaves your machine, and nothing is
+uploaded.** Detection is deterministic graph search — no machine learning. Same account in,
+same paths out, every time.
 
-## Install (three commands)
+> Cleave is powered by **Severance** — a deterministic, reachability-ranked attack-path
+> engine. It enumerates every route to admin, ranks them by reachability, and names the one
+> cut that severs the most paths.
+
+## Why it's different
+
+A config scanner gives you a flat list of hundreds of findings. Cleave gives you the **few
+routes that actually reach admin**, ranked, with the one fix that closes the most — and a
+pre-merge gate that blocks pull requests which *open* a new path.
+
+On a synthetic benchmark account with 5 planted attack paths, run against every tool the
+same day:
+
+| Tool | Result | Paths to admin |
+|---|---|---|
+| Prowler | 661 findings, unranked | 0 (no path concept) |
+| ScoutSuite | 187 flagged | 0 |
+| Checkov | 258 IaC findings | 0 |
+| PMapper | IAM privesc graph | 2 of 5 (IAM-only) |
+| **Cleave** | **ranked paths + minimum cut + merge gate** | **5 of 5 + variants** |
+
+Flat scanners find the *pieces*; Cleave finds the *routes*, ranks them, and names the fix.
+
+## Install
+
+**Desktop app (Windows):** download the latest signed installer from
+[Releases](https://github.com/Piyush-4007/Cleave/releases/latest) and run it. It bundles the
+engine; no setup. It also self-updates.
+
+**Self-host (any platform):**
 
 ```bash
-git clone <repo> && cd cleave
-cp .env.example .env      # fill in a couple of local values
+git clone https://github.com/Piyush-4007/Cleave && cd Cleave
+cp .env.example .env
 docker compose up
 ```
 
-Then open http://localhost:8000/health (API) or http://localhost:8000/docs (interactive
-API docs) — the dashboard (Phase 6) will live at http://localhost:3000.
+## Connect an AWS account — no keys, ever
 
-## Connect an AWS account (no keys)
+Cleave never asks for AWS access keys. Two ways to connect:
 
-Cleave never asks for AWS access keys. You create a read-only role in your own account
-and paste back its ARN:
+- **Your AWS login:** if you're signed in with the AWS CLI (`aws login` / SSO), the app uses
+  those credentials on your machine — one click, read-only.
+- **Scoped read-only role:** create a `CleaveAudit` role with the AWS-managed `SecurityAudit`
+  + `ViewOnlyAccess` policies in your account and paste back its ARN. Cleave assumes it and
+  holds no secret credential.
 
-1. Create a role (`CleaveAudit`) with the AWS-managed `SecurityAudit` + `ViewOnlyAccess`
-   policies.
-2. Put its ARN in `.env` as `CLEAVE_ROLE_ARN`.
-3. Cleave assumes that role to scan. It holds no secret credential, ever.
+Cleave only ever makes **read** calls.
+
+## How it works
+
+Collectors read the account → records become a graph → the **Severance** engine (IAM policy
+evaluator + reachability) materialises the escalation edges → path search finds every route
+to admin, scores it, and computes the minimum cut → remediation turns each cut edge into
+corrected Terraform (or honest guidance).
+
+- **What counts as a start.** `EXTERNAL` (internet-reachable resource, public bucket,
+  unauthenticated Lambda URL) and `ASSUMED_COMPROMISE` (any non-admin principal — "if this
+  credential leaked, what could it reach?"). A principal that already holds `*:*` is the
+  baseline and is not reported.
+- **Every edge has evidence** tied to a real attacker action.
+- **Reproducible.** Scoring weights and remediation costs live in `cleave/paths/policy.json`,
+  editable by hand — any score is reproducible with a calculator.
 
 ## Layout
 
-| Path | Phase | What |
-|------|-------|------|
-| `backend/cleave/collectors/` | 1 | read the account (one module per service) |
-| `backend/cleave/graph/`      | 2 | nodes, edges, Neo4j loader |
-| `backend/cleave/iam/`        | 3,7 | IAM policy evaluator + fixtures |
-| `backend/cleave/reachability/` | 3 | network reachability |
-| `backend/cleave/paths/`      | 4,5 | path search, scoring, min-cut |
-| `backend/cleave/remediation/`| 8 | Terraform patch generator |
-| `backend/cleave/gate/`       | 9 | plan collector + path diff |
-| `backend/cleave/api/`        | — | FastAPI routes |
-| `frontend/`                  | 6 | React dashboard |
-| `scenarios/`                 | 10 | test-account generator |
-| `eval/`                      | 10 | benchmark harness |
+| Path | What |
+|------|------|
+| `backend/cleave/collectors/` | read the account (one module per service) |
+| `backend/cleave/graph/`      | nodes, edges, loader |
+| `backend/cleave/iam/`        | the Severance IAM policy evaluator + fixtures |
+| `backend/cleave/reachability/` | network reachability |
+| `backend/cleave/paths/`      | path search, scoring, minimum cut |
+| `backend/cleave/remediation/`| Terraform patch generator |
+| `backend/cleave/gate/`       | pre-merge gate (plan diff) |
+| `backend/cleave/benchmark/`  | synthetic benchmark + metrics |
+| `backend/cleave/api/`        | FastAPI routes |
+| `frontend/`                  | the dashboard (React) — attack-path graph, findings, remediation |
+| `desktop/`                   | the Tauri desktop app (bundles the engine) |
 
 ## Status
-Phase 5 — ranking + minimum cut. See `../Cleave_Build_Handbook.md` for the full plan.
 
-## Running a scan in dev (Phase 1)
+Reachability-ranked path search, minimum cut, remediation-to-Terraform, a GitHub merge
+gate, and a synthetic benchmark are all implemented; 385 backend tests. The desktop app
+ships the engine with an attack-path graph view and self-update.
 
-```bash
-cd backend && uv venv --python 3.11 .venv && uv pip install -r requirements.txt   # once
-./scan.sh    # from the repo root
-```
+## License
 
-`scan.sh` bridges `aws login` credentials into the environment (boto3 can't read the
-`login_session` format the AWS CLI uses), assumes the `CleaveAudit` role, and writes one
-JSON file per service to `data/raw/`. Re-run any time; the graph rebuilds from those files
-without re-hitting AWS.
+[MIT](LICENSE).
 
-## Finding attack paths in dev (Phase 4)
+## Authors
 
-```bash
-./load.sh                                  # data/raw -> Neo4j (needs the neo4j container)
-cd backend && .venv/bin/python -m cleave.paths.run
-```
-
-`paths.run` reads the loaded graph, classifies sources and sinks, and prints every route
-from a source to administrative control, shortest first, with the evidence behind each hop.
-Add `--from-raw` to skip Neo4j and search straight from `data/raw`, or `--json` for
-machine-readable output.
-
-**What counts as a start.** Two source classes: `EXTERNAL` (internet-reachable resource,
-public bucket, unauthenticated Lambda URL) and `ASSUMED_COMPROMISE` (any principal that is
-not already a literal administrator — "if this credential leaked, what could it reach?").
-A principal that already holds `*:*` is the account's baseline and is not reported.
-
-**Detection is deterministic.** Same graph in, same paths out. No model is involved.
-
-The output is three things: the ranked paths, the **best single fix** (the one change that
-breaks the most paths — the demo headline), and the **minimum cut** (the cheapest set of
-changes that breaks every path). Scoring weights and remediation costs live in
-`cleave/paths/policy.json`, editable by hand so any score is reproducible with a
-calculator.
-
-## The API (Phase 5/6 bridge)
-
-The same engine behind the CLI is served over HTTP for the dashboard:
-
-| Route | Returns |
-|---|---|
-| `GET /health` | liveness |
-| `GET /analysis` | ranked paths + minimum cut + best single fix + summary |
-| `GET /analysis/summary` | just the dashboard numbers (no path bodies) |
-| `GET /analysis/paths/{id}` | one path + its drawable subgraph (route and cut flagged) |
-
-The graph source is Neo4j (populated by `./load.sh`); in dev it falls back to the raw
-dump if Neo4j is down. Analysis is cached — pass `?refresh=true` after a new scan/load.
-Interactive docs at `/docs`.
+Piyush Singh, Ketan Bhendarkar, Ashwini Lawhale · Guide: Prof. Manoj Shinde · MIT-ADT
+University, Pune (Group BCCC39). Not affiliated with AWS.
