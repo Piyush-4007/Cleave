@@ -2,7 +2,7 @@
   Resolve the newest Windows installer from the public releases repo, so "Get Cleave" always
   serves the current version without the site hardcoding it. Falls back to the releases page.
 */
-const RELEASES_REPO = "Piyush-4007/cleave-releases";
+const RELEASES_REPO = "Piyush-4007/Cleave";
 export const RELEASES_PAGE = `https://github.com/${RELEASES_REPO}/releases/latest`;
 
 export async function latestInstallerUrl(): Promise<string> {
