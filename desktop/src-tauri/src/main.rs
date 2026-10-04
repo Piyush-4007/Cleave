@@ -61,6 +61,8 @@ fn start_engine(app: &tauri::App, port: u16, token: &str) -> Result<Child, Box<d
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let port = free_port()?;
             let token = uuid::Uuid::new_v4().simple().to_string();

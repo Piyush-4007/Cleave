@@ -6,6 +6,7 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { AnalysisProvider, useAnalysis } from "./useAnalysis";
 import { getConnection, waitForBackend, whoLabel } from "./api";
 import { DESKTOP } from "../desktop";
+import { UpdateBanner } from "./UpdateBanner";
 
 const TABS = [
   ["Overview", "/dashboard"],
@@ -113,6 +114,7 @@ export function DashboardShell() {
             ))}
           </nav>
         </header>
+        <UpdateBanner />
         <DesktopFirstRun />
         <ErrorBanner />
         <Outlet />
