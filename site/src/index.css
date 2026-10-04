@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+/* v2: "exaggerated minimalism + bento" (UI UX Pro Max style picks).
+   Warm paper, black ink bands, ONE loud accent (acid lime), red reserved for the cut. */
+@theme {
+  --color-paper: #f2f0eb;
+  --color-paper-2: #e9e6df;
+  --color-ink: #0c0c0c;
+  --color-ink-2: #171717;
+  --color-ink-3: #262626;
+  --color-line: #d6d2c8;
+  --color-line-dark: #2e2e2e;
+  --color-mute: #66645e;
+  --color-mute-dark: #a3a19a;
+  --color-lime: #d4f53c;
+  --color-cut: #ff3b2f;
+
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-feed: feed 60s linear infinite;
+  @keyframes marquee {
+    to { transform: translateX(-50%); }
+  }
+  @keyframes feed {
+    to { transform: translateY(-50%); }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
+  font-optical-sizing: auto;
+}
+
+/* lime highlighter stroke behind a word */
+.mark {
+  background: linear-gradient(transparent 58%, var(--color-lime) 58%, var(--color-lime) 92%, transparent 92%);
+  padding: 0 0.08em;
+}
+
+/* "Cleave" the word: the glyphs are split along a slanted line and the lower half slides off */
+.cleaved {
+  position: relative;
+  display: inline-block;
+  color: transparent;
+}
+.cleaved::before,
+.cleaved::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  color: var(--color-ink);
+}
+.cleaved::before {
+  clip-path: polygon(0 0, 100% 0, 100% 44%, 0 64%);
+}
+.cleaved::after {
+  clip-path: polygon(0 64%, 100% 44%, 100% 100%, 0 100%);
+  animation: cleave 900ms cubic-bezier(0.16, 1, 0.3, 1) 500ms both;
+}
+.cleaved .slash {
+  position: absolute;
+  left: -6%;
+  right: -6%;
+  top: 54%;
+  height: 0.055em;
+  background: var(--color-cut);
+  transform: rotate(-9deg) scaleX(0);
+  transform-origin: left center;
+  animation: slash 450ms cubic-bezier(0.7, 0, 0.3, 1) 150ms forwards;
+}
+@keyframes cleave {
+  from { transform: translate(0, 0); }
+  to { transform: translate(0.07em, 0.06em); }
+}
+@keyframes slash {
+  to { transform: rotate(-9deg) scaleX(1); }
+}
+
+.dots {
+  background-image: radial-gradient(circle, rgb(12 12 12 / 0.13) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+}
+.dots-dark {
+  background-image: radial-gradient(circle, rgb(255 255 255 / 0.09) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-cut);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+::selection { background: var(--color-lime); color: var(--color-ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .cleaved::after, .cleaved .slash { animation-duration: 1ms; animation-delay: 0ms; }
+  .animate-marquee, .animate-feed { animation: none; }
+}
+
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }

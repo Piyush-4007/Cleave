@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-ssr/
+
+# local env (Supabase keys — public anon key still kept out of git by habit)
+.env.local
+.env.*.local
+*.local
+
+# caches / editor / OS
+*.tsbuildinfo
+.vite/
+.DS_Store
+.claude/
+
+# old v1 source snapshot (kept locally, not part of the published site)
+_v1-src/
