@@ -9,6 +9,17 @@ const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 export const supabase: SupabaseClient | null =
-  url && anon ? createClient(url, anon) : null;
+  url && anon
+    ? createClient(url, anon, {
+        auth: {
+          // PKCE returns a ?code the client exchanges reliably in a SPA, instead of the
+          // implicit #access_token hash that can fail to persist a session on redirect.
+          flowType: "pkce",
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      })
+    : null;
 
 export const authConfigured = !!supabase;
