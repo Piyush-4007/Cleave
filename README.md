@@ -100,7 +100,8 @@ ships the engine with an attack-path graph view and self-update.
 
 [MIT](LICENSE).
 
-## Authors
+## Author
 
-Piyush Singh, Ketan Bhendarkar, Ashwini Lawhale · Guide: Prof. Manoj Shinde · MIT-ADT
-University, Pune (Group BCCC39). Not affiliated with AWS.
+Piyush Singh.
+
+Not affiliated with AWS.

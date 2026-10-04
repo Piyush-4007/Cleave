@@ -103,8 +103,7 @@ idea land without assuming they know what PassRole is.
 9. **Get started / install.** The three commands (`git clone` → `cp .env.example .env` →
    `docker compose up`), the connect-account (paste-the-ARN) explanation, link to docs.
 
-10. **Footer.** Repo link, docs, the team (Piyush, Ketan, Ashwini), guide (Prof. Manoj
-    Shinde), university, license.
+10. **Footer.** Repo link, docs, author (Piyush Singh), license.
 
 ### A2. Public-site requirements checklist
 - Fully responsive (phone → desktop), fast, no backend calls.

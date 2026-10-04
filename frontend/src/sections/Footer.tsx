@@ -18,17 +18,15 @@ export function Footer() {
           <FooterCol title="Project" links={[["GitHub", "https://github.com/Piyush-4007/Cleave"], ["Docs", "https://github.com/Piyush-4007/Cleave"]]} />
           <FooterCol title="Learn" links={[["The problem", "#problem"], ["How it works", "#method"], ["Compare", "#compare"]]} />
           <div>
-            <div className="mono mb-4 text-[11px] uppercase tracking-[0.18em] text-[color:var(--dim)]">Team</div>
+            <div className="mono mb-4 text-[11px] uppercase tracking-[0.18em] text-[color:var(--dim)]">Author</div>
             <p className="text-[13px] leading-relaxed text-[color:var(--muted)]">
-              Piyush Singh, Ketan Bhendarkar, Ashwini Lawhale.<br />
-              Guide: Prof. Manoj Shinde.<br />
-              MIT-ADT University, Pune.
+              Piyush Singh.
             </p>
           </div>
         </div>
       </div>
       <div className="mx-auto mt-12 max-w-[1180px] px-5 sm:px-8">
-        <div className="mono text-[11px] text-[color:var(--dim)]">Final-year project, Group BCCC39.</div>
+        <div className="mono text-[11px] text-[color:var(--dim)]">Not affiliated with AWS.</div>
       </div>
     </footer>
   );

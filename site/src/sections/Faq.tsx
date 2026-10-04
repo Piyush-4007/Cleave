@@ -11,7 +11,7 @@ const QA: [string, string][] = [
   ["Is it AI?", "No. Finding paths is deterministic graph search: the same account gives the same result every time, and every edge carries evidence. A language model can optionally describe a path, but it never decides one."],
   ["What does it cost?", "Nothing. It's open source, and the AWS calls it makes are free reads."],
   ["Is it production-ready?", "It's a working research tool, validated on deliberately vulnerable test accounts and a real clean account. The Windows installer isn't code-signed yet, so Windows will warn on first launch. Fix pull requests and a pre-deploy gate are in progress."],
-  ["Who built it?", "Piyush Singh, Ketan Bhendarkar and Ashwini Lawhale, as a final-year project at MIT-ADT University, Pune, guided by Prof. Manoj Shinde."],
+  ["Who built it?", "Piyush Singh — an independent, open-source project. Not affiliated with AWS."],
 ];
 
 export function Faq() {
