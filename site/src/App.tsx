@@ -1,5 +1,6 @@
 import { Nav } from "./sections/Nav";
 import { Hero } from "./sections/Hero";
+import { Demo } from "./sections/Demo";
 import { Ticker } from "./sections/Ticker";
 import { Problem } from "./sections/Problem";
 import { Product } from "./sections/Product";
@@ -23,6 +24,7 @@ export default function App() {
       <Nav />
       <main id="main">
         <Hero />
+        <Demo />
         <Ticker />
         <Problem />
         <Product />
