@@ -26,3 +26,7 @@ eval/results/
 eval/live-run/
 
 frontend/.claude/
+
+# brag launch-video output (local only)
+brag-output/
+brag-output-voice/
