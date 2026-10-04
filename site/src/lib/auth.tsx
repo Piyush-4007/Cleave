@@ -29,8 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     const sb = supabase;
-    const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
-      console.log("[auth] event:", event, session?.user?.email ?? "(none)");
+    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
@@ -38,15 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Manually finish the OAuth redirect: exchange the ?code= for a session.
       const code = new URLSearchParams(window.location.search).get("code");
       if (code) {
-        const { error } = await sb.auth.exchangeCodeForSession(code);
-        if (error) console.error("[auth] exchangeCodeForSession failed:", error.message);
-        else console.log("[auth] code exchanged → session stored");
-        // strip ?code=&state= from the address bar either way
+        await sb.auth.exchangeCodeForSession(code);
+        // strip ?code=&state= from the address bar
         window.history.replaceState({}, document.title, window.location.pathname);
       }
-      const { data, error } = await sb.auth.getSession();
-      if (error) console.error("[auth] getSession error:", error.message);
-      console.log("[auth] initial session:", data.session?.user?.email ?? "(none)");
+      const { data } = await sb.auth.getSession();
       setUser(data.session?.user ?? null);
       setLoading(false);
     })();
