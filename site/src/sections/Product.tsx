@@ -117,8 +117,8 @@ export function Product() {
         <Reveal delay={0.05} className={cn(tile, "flex flex-col justify-between border border-line bg-paper-2")}>
           <MessageSquareText className="size-6" aria-hidden />
           <div>
-            <h3 className="display text-2xl">Plain-English, optional.</h3>
-            <p className="mt-2 text-sm text-mute">A language model can narrate a path. It never decides one. Off by default.</p>
+            <h3 className="display text-2xl">In plain words.</h3>
+            <p className="mt-2 text-sm text-mute">Every path is also explained in everyday language, from fixed templates. No model, nothing decided by it.</p>
           </div>
         </Reveal>
 

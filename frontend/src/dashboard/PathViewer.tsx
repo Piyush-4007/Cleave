@@ -129,6 +129,17 @@ function PathWorkspace({ path, allPaths, fixes, cut, view, setView, onSelectPath
           <ViewToggle view={view} setView={setView} />
         </div>
 
+        {path.plain && (
+          <div className="border-b border-[color:var(--line)] px-6 py-4 lg:px-10">
+            <div className="mono text-[11px] uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              In plain words
+            </div>
+            <p className="mt-1.5 max-w-[78ch] text-[14px] leading-relaxed text-[color:var(--text)]">
+              {path.plain}
+            </p>
+          </div>
+        )}
+
         {view === "graph" ? (
           <div className="h-[70vh] lg:h-auto lg:min-h-0 lg:flex-1">
             <PathGraph

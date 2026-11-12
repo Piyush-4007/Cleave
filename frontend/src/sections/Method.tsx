@@ -32,8 +32,8 @@ export function Method() {
         ))}
       </div>
       <p className="mono mt-6 text-[12px] text-[color:var(--dim)]">
-        Detection is deterministic. Same account in, same paths out. The language model only
-        turns a found path into a sentence; switch it off and the findings are identical.
+        Detection is deterministic. Same account in, same paths out. The plain-language
+        summary only restates a found path, from fixed templates; no model is involved.
       </p>
     </Section>
   );

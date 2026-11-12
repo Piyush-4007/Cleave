@@ -68,8 +68,8 @@ class AttackPath:
         return (self.source.uid, self.sink.uid, tuple(h.rel for h in self.hops))
 
     def narrate(self) -> str:
-        """Plain-text hop-by-hop. Deterministic — the LLM (Phase 6) prettifies this, it
-        never produces it, so switching the model off loses nothing but prose."""
+        """Technical hop-by-hop text, deterministic. The everyday-language version for
+        non-specialists is `paths.plain.plain_summary` — also template-based, no model."""
         lines = [f"[{self.source.kind}] {_short(self.source.uid)} — {self.source.reason}"]
         for i, h in enumerate(self.hops, 1):
             alt = f"  (also: {', '.join(h.alternatives)})" if h.alternatives else ""

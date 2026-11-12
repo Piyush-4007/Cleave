@@ -19,6 +19,7 @@ const paths: AttackPath[] = [
   {
     id: "PATH-001", rank: 1, score: 9.2, confidence: "Certain",
     title: "The internet reaches an admin role through a config file.",
+    plain: "An attacker on the internet can start this without any login. From there they can connect to the server web-01. The server web-01 runs with the permissions of the role web-app-role, so controlling it means having those permissions. The role web-app-role can read what is inside the storage bucket prod-config/.env. The storage bucket prod-config/.env holds a saved login key that belongs to the user deploy-bot, so whoever reads it can act as the user deploy-bot. The user deploy-bot holds a permission (iam:CreateAccessKey) that lets it give itself full control of the account.",
     source: { name: "internet", kind: "EXTERNAL" },
     sink: { name: "administrator", kind: "ADMIN" },
     technique: "Read-then-steal (bucket read yields a live key)",
@@ -45,6 +46,7 @@ const paths: AttackPath[] = [
   {
     id: "PATH-002", rank: 2, score: 8.8, confidence: "Certain",
     title: "A CI user rolls a policy back to an admin version.",
+    plain: "Suppose the login for the user ci-runner is stolen or misused. The user ci-runner holds a permission (iam:SetDefaultPolicyVersion) that lets it give itself full control of the account.",
     source: { name: "ci-runner", kind: "ASSUMED_COMPROMISE" },
     sink: { name: "administrator", kind: "ADMIN" },
     technique: "SetDefaultPolicyVersion rollback",
@@ -63,6 +65,7 @@ const paths: AttackPath[] = [
   {
     id: "PATH-003", rank: 3, score: 8.1, confidence: "Certain",
     title: "A public backup leaks a key that reads the customer database.",
+    plain: "Anyone on the internet can read the storage bucket backups, with no login. The storage bucket backups holds a saved login key that belongs to the user analytics-bot, so whoever reads it can act as the user analytics-bot. The user analytics-bot can read what is inside the database prod-customers. The database prod-customers is marked as sensitive, so this ends with that data exposed.",
     source: { name: "db-backups", kind: "EXTERNAL" },
     sink: { name: "prod-customers", kind: "SENSITIVE_DATA" },
     technique: "Credential exposed in storage, reused",
@@ -79,6 +82,7 @@ const paths: AttackPath[] = [
   {
     id: "PATH-004", rank: 4, score: 7.4, confidence: "Certain",
     title: "An intern overwrites a Lambda that runs as an admin role.",
+    plain: "Suppose the login for the user intern is stolen or misused. The user intern can change the function report-fn. The function report-fn runs with the permissions of the role report-role, so controlling it means having those permissions. The role report-role has full administrator permissions, which means complete control of the account.",
     source: { name: "intern", kind: "ASSUMED_COMPROMISE" },
     sink: { name: "administrator", kind: "ADMIN" },
     technique: "Lambda code overwrite (act as the execution role)",
@@ -97,6 +101,7 @@ const paths: AttackPath[] = [
   {
     id: "PATH-005", rank: 5, score: 6.9, confidence: "Certain",
     title: "A build cache leaks the same deploy-bot key.",
+    plain: "Anyone on the internet can read the storage bucket ci-cache, with no login. The storage bucket ci-cache holds a saved login key that belongs to the user deploy-bot, so whoever reads it can act as the user deploy-bot. The user deploy-bot holds a permission (iam:CreateAccessKey) that lets it give itself full control of the account.",
     source: { name: "ci-cache", kind: "EXTERNAL" },
     sink: { name: "administrator", kind: "ADMIN" },
     technique: "Credential exposed in storage, reused",
@@ -113,6 +118,7 @@ const paths: AttackPath[] = [
   {
     id: "PATH-006", rank: 6, score: 6.2, confidence: "Possible",
     title: "A staging role can assume its way to deploy-bot.",
+    plain: "Suppose someone gets to act as the role staging-deployer, for example through the system or automation that uses it. The role staging-deployer is allowed to switch into the user deploy-bot. The user deploy-bot holds a permission (iam:CreateAccessKey) that lets it give itself full control of the account. At least one step depends on conditions that cannot be confirmed from configuration alone, so this is possible rather than certain.",
     source: { name: "staging-deployer", kind: "ASSUMED_COMPROMISE" },
     sink: { name: "administrator", kind: "ADMIN" },
     technique: null,

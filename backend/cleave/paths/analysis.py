@@ -13,6 +13,7 @@ from .model import EXTERNAL
 from .search import MAX_HOPS, K_PER_PAIR, find_paths
 from .ranking import rank
 from .cut import minimum_cut, best_single_fix
+from .plain import plain_summary
 
 # Graph node label -> the short type string the dashboard renders (icon + tag).
 LABEL_TO_TYPE = {
@@ -45,6 +46,7 @@ def analyze(g, max_hops: int = MAX_HOPS, k: int = K_PER_PAIR) -> dict:
     for d in ranked:
         d["view"] = [_node_view(g, uid) for uid in d["nodes"]]
         d["title"] = _path_title(d["view"], d["sink"]["kind"], d["length"])
+        d["plain"] = plain_summary(d)
 
     # Per-resource findings (the Nessus-style layer), tagged and ranked by the paths above.
     from ..findings import run_checks, summarize, tag_and_rank

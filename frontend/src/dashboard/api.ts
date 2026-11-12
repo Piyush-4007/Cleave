@@ -39,6 +39,7 @@ export interface AttackPath {
   score: number;
   confidence: Confidence;
   technique: string | null;
+  plain?: string | null; // the path in everyday words (template-generated, no model)
   nodes: PathNode[]; // ordered stops, source first, sink last
   hops: Hop[]; // nodes[i] -> nodes[i+1]
 }
@@ -361,6 +362,7 @@ function mapLive(a: any): Analysis {
     score: d.ranking?.score ?? 0,
     confidence: d.confidence,
     technique: d.ranking?.technique ?? null,
+    plain: d.plain ?? null,
     nodes: (d.view ?? []).map((v: any) => ({ id: v.id, type: v.type, name: v.name, detail: v.detail ?? undefined })),
     hops: (d.hops ?? []).map((h: any) => ({ frm: h.frm, to: h.to, rel: h.rel, reason: h.reason, confidence: h.confidence })),
   }));
