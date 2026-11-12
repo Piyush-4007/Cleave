@@ -131,11 +131,31 @@ def run() -> dict[str, int]:
         findings = []
         log.info("  %-12s disabled (set CLEAVE_CREDSCAN=true + grant s3:GetObject to enable)",
                  "credscan")
-    summary = write_raw(outdir, collected, findings, meta={
+    meta = {
         "account": ident.get("Account", ""), "arn": ident.get("Arn", ""), "mode": "cli",
-        "scanned_at": datetime.now(timezone.utc).isoformat()})
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "duration_s": round(time.perf_counter() - t, 1),
+        "resources": sum(len(recs) for recs in collected.values()),
+        "credscan": bool(settings.cleave_credscan)}
+    summary = write_raw(outdir, collected, findings, meta=meta)
     log.info("wrote %d collectors -> %s", len(summary), outdir)
+    _record_history(collected, findings, meta)
     return summary
+
+
+def _record_history(collected: dict[str, list], findings: list, meta: dict) -> None:
+    """Add a CLI scan to the scan history, the same as an API/desktop scan. Like
+    persistence, a failure here never fails the scan."""
+    try:
+        from . import history
+        from .identity import caller_identity
+        from .paths.analysis import analyze
+        from .paths.graphview import graph_from_records
+        records = [r for recs in collected.values() for r in recs]
+        g = graph_from_records(records, findings)
+        history.record({**meta, **caller_identity(meta["arn"], g)}, analyze(g))
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not record scan history: %s", e)
 
 
 if __name__ == "__main__":

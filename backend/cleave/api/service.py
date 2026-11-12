@@ -113,6 +113,9 @@ def run_scan(mode: str, role_arn: str | None = None) -> dict:
             "scanned_at": datetime.now(timezone.utc).isoformat(),
             "duration_s": round(time.perf_counter() - started, 1),
             "resources": len(scan["records"]),
+            # Whether object contents were read for leaked keys this scan — off means the
+            # credential-in-storage paths were not looked for, not that there are none.
+            "credscan": bool(settings.cleave_credscan),
             **caller_identity(scan["arn"], g),
         }
         # Persist it, so a restart (or the desktop app reopening) shows this scan again.

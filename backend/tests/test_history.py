@@ -145,3 +145,23 @@ def test_old_saved_scan_gets_identity_from_its_arn(tmpdb):
          "mode": "login", "scanned_at": "2026-09-29T21:14:39+00:00"}))
     meta = service._meta_from_raw(str(raw))
     assert (meta["principal_type"], meta["principal_name"]) == ("user", "cleave-dev")
+
+
+def test_a_cli_scan_is_recorded_too(tmpdb, monkeypatch):
+    """`./scan.sh` (collect.run) lands in the same history as an API/desktop scan."""
+    fx = json.loads(FIX.read_text())
+    from cleave import collect
+
+    class FakeSession:
+        def client(self, *_a, **_k):
+            class C:
+                def get_caller_identity(self):
+                    return {"Account": "111122223333", "Arn": "arn:aws:iam::111122223333:user/x"}
+            return C()
+    monkeypatch.setattr(collect, "build_session", lambda: FakeSession())
+    monkeypatch.setattr(collect, "run_collectors", lambda ctx: {"fixture": fx["records"]})
+
+    collect.run()
+    scans = history.list_scans("111122223333")
+    # the fixture's credential findings are not fed in (credscan is off), so fewer than its 5 paths
+    assert len(scans) == 1 and scans[0]["mode"] == "cli" and scans[0]["paths_found"] >= 1
