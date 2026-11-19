@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: cleave/desktop
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v4
 
@@ -59,4 +59,4 @@ jobs:
         with:
           name: cleave-${{ matrix.os }}
           path: |
-            cleave/desktop/src-tauri/target/release/bundle/**/*
+            desktop/src-tauri/target/release/bundle/**/*
