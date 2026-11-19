@@ -167,15 +167,38 @@ def _policy_resource(uid: str, record: dict, doc: dict) -> tuple[str, str]:
     return "aws_iam_policy", label
 
 
+def _iam_path(arn: str) -> str:
+    """The IAM path of a role/policy from its ARN: arn:...:policy/team/x -> "/team/"."""
+    parts = arn.split(":", 5)[-1].split("/")       # ["policy", "team", "x"]
+    return "/" + "/".join(parts[1:-1]) + "/" if len(parts) > 2 else "/"
+
+
+def _import_block(res: str, label: str, import_id: str) -> str:
+    """Terraform >= 1.5 import block. The resource already exists in the account, so
+    `terraform apply` adopts it and updates it in place instead of failing with
+    EntityAlreadyExists."""
+    return f'import {{\n  to = {res}.{label}\n  id = "{import_id}"\n}}\n\n'
+
+
 def _render_policy_tf(uid: str, record: dict, doc: dict) -> str:
     res, label = _policy_resource(uid, record, doc)
     body = json.dumps(doc, indent=2)
     body = "\n".join("    " + ln for ln in body.splitlines())
-    head = (f'# Cleave-proposed least-privilege replacement for {_short(uid)}\n'
-            f'resource "{res}" "{label}" {{\n'
-            f'  name   = "{_short(uid).split("#")[0]}"\n'
-            f'  policy = jsonencode(\n{body}\n  )\n}}\n')
-    return head
+    if "#inline/" in uid:
+        identity_arn, pname = uid.split("#inline/", 1)
+        identity = identity_arn.split("/")[-1]
+        kind = res.split("_")[2]                       # aws_iam_user_policy -> "user"
+        attrs = f'  {kind:<6} = "{identity}"\n  name   = "{pname}"\n'
+        import_id = f"{identity}:{pname}"
+    else:
+        path = _iam_path(uid)
+        attrs = (f'  name   = "{uid.split("/")[-1]}"\n'
+                 + (f'  path   = "{path}"\n' if path != "/" else ""))
+        import_id = uid
+    return (f'# Cleave-proposed least-privilege replacement for {_short(uid)}\n'
+            + _import_block(res, label, import_id)
+            + f'resource "{res}" "{label}" {{\n{attrs}'
+            + f'  policy = jsonencode(\n{body}\n  )\n}}\n')
 
 
 # ---- templates -----------------------------------------------------------------------
@@ -318,9 +341,12 @@ def _fix_can_assume(edge: dict, g) -> Fix:
         res = "aws_iam_role"
         label = _tf_name(role_uid)
         body = "\n".join("    " + ln for ln in json.dumps(new_trust, indent=2).splitlines())
+        path = _iam_path(role_uid)
         tf = (f'# Cleave: remove the wildcard (Principal "*") trust on {_short(role_uid)}\n'
-              f'resource "{res}" "{label}" {{\n  name               = "{_short(role_uid)}"\n'
-              f'  assume_role_policy = jsonencode(\n{body}\n  )\n}}\n')
+              + _import_block(res, label, _short(role_uid))
+              + f'resource "{res}" "{label}" {{\n  name               = "{_short(role_uid)}"\n'
+              + (f'  path               = "{path}"\n' if path != "/" else "")
+              + f'  assume_role_policy = jsonencode(\n{body}\n  )\n}}\n')
         return Fix(rel=edge["rel"], target=role_uid,
                    title=f"Remove the wildcard trust on {_short(role_uid)}",
                    note=f"{_short(role_uid)} can be assumed by ANY principal (its trust "
@@ -466,7 +492,7 @@ def _fix_public_bucket(bucket_uid: str, g) -> Fix:
         impact=f"Anything that legitimately reads {name} anonymously over the internet "
                "(a public website, public dataset) stops working — confirm it is not a "
                "deliberately public bucket first.",
-        confidence="templated", terraform=tf,
+        confidence="templated", terraform=tf, region=_rec(g, bucket_uid).get("Region"),
         apply={"kind": "block_public", "uid": bucket_uid})
 
 

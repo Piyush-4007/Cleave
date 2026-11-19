@@ -256,3 +256,48 @@ def test_desktop_settings_env_loader(tmp_path, monkeypatch):
     assert os.environ["CLEAVE_GITHUB_TOKEN"] == "tok"       # quotes stripped
     assert os.environ["ALREADY_SET"] == "keep"              # never overrides
     _load_env_file(tmp_path / "missing.env")                # no crash on missing
+
+
+# ---- the downloaded bundle applies cold: provider block + import blocks ----------------
+
+def test_bundle_is_a_complete_root_module_with_region(tmp_path):
+    from cleave.remediation.bundle import bundle_files
+    fx, g, result = _load("03-public-bucket-credential-to-admin.json")
+    files = bundle_files(generate_for_result(result, g))
+    prov = files["providers.tf"]
+    assert 'provider "aws"' in prov and 'required_version = ">= 1.5"' in prov
+    assert "region" in prov and "AKIA" not in prov
+    assert "terraform init" in files["REMEDIATION.md"]
+
+
+def test_no_providers_file_when_there_is_nothing_to_apply():
+    from cleave.remediation.bundle import bundle_files
+    only_guidance = [{"rel": "CAN_LAUNCH_AS", "target": "x", "title": "t", "note": "n",
+                      "impact": "i", "confidence": "guidance", "terraform": None}]
+    assert "providers.tf" not in bundle_files(only_guidance)
+
+
+def test_inline_policy_patch_names_its_identity_and_imports_it():
+    from cleave.remediation.generate import _render_policy_tf
+    uid = "arn:aws:iam::1:user/ci-bot#inline/deploy"
+    tf = _render_policy_tf(uid, {}, {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]})
+    assert 'resource "aws_iam_user_policy"' in tf
+    assert 'user   = "ci-bot"' in tf and 'name   = "deploy"' in tf
+    assert "import {" in tf and 'id = "ci-bot:deploy"' in tf
+
+
+def test_managed_policy_patch_imports_by_arn_and_keeps_its_path():
+    from cleave.remediation.generate import _render_policy_tf
+    uid = "arn:aws:iam::1:policy/team/dev-policy"
+    tf = _render_policy_tf(uid, {}, {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]})
+    assert 'resource "aws_iam_policy"' in tf and f'id = "{uid}"' in tf
+    assert 'name   = "dev-policy"' in tf and 'path   = "/team/"' in tf
+
+
+def test_wildcard_trust_patch_imports_the_role():
+    fx, g, result = _load("06-overlapping-paths-shared-cut.json")
+    for f in generate_for_result(result, g):
+        if f["confidence"] == "templated" and f["terraform"] and "aws_iam_role\"" in f["terraform"]:
+            assert "import {" in f["terraform"]

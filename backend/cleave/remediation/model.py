@@ -36,11 +36,12 @@ class Fix:
     #   {"kind": "replace_trust",  "uid": ..., "trust": {...}}
     #   {"kind": "narrow_sg",      ...}   (added as templates land)
     apply: dict = field(default_factory=dict)
+    region: str | None = None      # AWS region the patch must run in (S3 buckets); IAM is global
 
     def to_dict(self) -> dict:
         return {
             "rel": self.rel, "target": self.target, "title": self.title,
             "note": self.note, "impact": self.impact, "confidence": self.confidence,
             "terraform": self.terraform, "policy_json": self.policy_json,
-            "apply": self.apply,
+            "apply": self.apply, "region": self.region,
         }

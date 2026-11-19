@@ -43,8 +43,34 @@ def bundle_files(fixes: list[dict]) -> dict[str, str]:
         else:
             md.append("- **patch:** none — apply the guidance above by hand "
                       "(Cleave cannot generate a safe patch for this one).")
+    if n:
+        files["providers.tf"] = _providers_tf(fixes)
+        md[3:3] = ["\n## How to apply\n",
+                   "1. Put these files in an empty folder, with AWS credentials for the "
+                   "account in your environment (an admin, not the read-only CleaveAudit role).",
+                   "2. `terraform init`",
+                   "3. `terraform plan` — check it changes only the resources listed below "
+                   "(existing ones are imported and updated in place, not recreated).",
+                   "4. `terraform apply`, then rescan in Cleave.\n"]
     files["REMEDIATION.md"] = "\n".join(md) + "\n"
     return files
+
+
+def _providers_tf(fixes: list[dict]) -> str:
+    """Makes the bundle a complete root module, so `terraform init && terraform apply` works
+    on the folder as downloaded. The region is the first fix's (S3 patches must run in the
+    bucket's region; IAM is global). Credentials are never written here."""
+    region = next((f["region"] for f in fixes if f.get("region")), None) or "us-east-1"
+    return ("# Lets this folder be applied on its own: terraform init, then terraform apply.\n"
+            "# Credentials come from your environment (AWS profile / env vars), never this file.\n"
+            "# Existing resources are adopted with import blocks, which need Terraform >= 1.5.\n"
+            "terraform {\n"
+            '  required_version = ">= 1.5"\n'
+            "  required_providers {\n"
+            '    aws = { source = "hashicorp/aws", version = ">= 5.0" }\n'
+            "  }\n"
+            "}\n\n"
+            f'provider "aws" {{\n  region = "{region}"\n}}\n')
 
 
 def write_bundle(fixes: list[dict], out_dir: str | pathlib.Path) -> pathlib.Path:
